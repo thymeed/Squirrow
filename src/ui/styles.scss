@@ -16,6 +16,9 @@
   --k-preference: #b45309;
   --k-snippet: #7c3aed;
   --k-file-note: #4b5563;
+  --sky-top: #8ec5f5;
+  --sky-bottom: #dff0ff;
+  --scenery: url('./scenery-light.svg');
   @media (prefers-color-scheme: dark) {
     --bg: #14161a;
     --fg: #e8eaee;
@@ -34,6 +37,9 @@
     --k-preference: #f0b35a;
     --k-snippet: #b79bff;
     --k-file-note: #a8b0bc;
+    --sky-top: #0d1230;
+    --sky-bottom: #26356b;
+    --scenery: url('./scenery-dark.svg');
   }
 }
 
@@ -65,11 +71,20 @@
 }
 body {
   margin: 0;
-  background: var(--side);
+  background: linear-gradient(var(--sky-top), var(--sky-bottom)) fixed;
   color: var(--fg);
   font:
     15px/1.55 system-ui,
     sans-serif;
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--scenery) center bottom / cover no-repeat;
+  image-rendering: pixelated;
+  pointer-events: none;
 }
 button,
 input,
@@ -136,11 +151,13 @@ kbd {
   min-height: 100vh;
   max-width: 1120px;
   margin: 0 auto;
-  background: var(--bg);
+  background: linear-gradient(to right, var(--side) 260px, var(--bg) 260px);
   border-inline: 1px solid var(--line);
   @media (max-width: 720px) {
     grid-template-columns: 1fr;
+    background: var(--bg);
     aside {
+      background: var(--side);
       position: static;
       max-height: none;
     }
@@ -154,7 +171,6 @@ aside {
   overflow-y: auto;
   padding: 20px 16px;
   border-right: 1px solid var(--line);
-  background: var(--side);
   display: flex;
   flex-direction: column;
   gap: 8px;
