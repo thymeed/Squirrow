@@ -75,7 +75,9 @@ export function App() {
   const onImport = async (file: File | undefined) => {
     if (!file) return
     try {
-      await store.replaceAll(parseSnapshot(await file.text()))
+      const snapshot = parseSnapshot(await file.text())
+      if (!confirm('Importing replaces all current projects and entries. Continue?')) return
+      await store.replaceAll(snapshot)
       setNotice('Imported. Previous data was replaced.')
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Import failed')
@@ -128,7 +130,10 @@ export function App() {
             type="file"
             accept="application/json"
             hidden
-            onChange={(e) => onImport(e.target.files?.[0])}
+            onChange={(e) => {
+              onImport(e.target.files?.[0])
+              e.target.value = ''
+            }}
           />
         </div>
         <p className="hint">
