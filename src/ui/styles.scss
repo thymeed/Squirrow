@@ -65,7 +65,7 @@
 }
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--side);
   color: var(--fg);
   font:
     15px/1.55 system-ui,
@@ -134,11 +134,24 @@ kbd {
   display: grid;
   grid-template-columns: 260px 1fr;
   min-height: 100vh;
+  max-width: 1120px;
+  margin: 0 auto;
+  background: var(--bg);
+  border-inline: 1px solid var(--line);
   @media (max-width: 720px) {
     grid-template-columns: 1fr;
+    aside {
+      position: static;
+      max-height: none;
+    }
   }
 }
 aside {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  max-height: 100vh;
+  overflow-y: auto;
   padding: 20px 16px;
   border-right: 1px solid var(--line);
   background: var(--side);
