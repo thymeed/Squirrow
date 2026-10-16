@@ -5,6 +5,41 @@ import { searchEntries } from '../core/search'
 import { useStore } from '../core/store'
 import { ENTRY_KINDS, type Entry, type EntryKind, type Id } from '../core/types'
 
+const KIND_ICON: Record<EntryKind, string> = {
+  fact: '💡',
+  decision: '⚖️',
+  preference: '❤️',
+  snippet: '🧩',
+  'file-note': '📄',
+}
+
+const KIND_HELP: Record<EntryKind, string> = {
+  fact: 'Something true about your project, like "We use Postgres 16".',
+  decision: 'A choice you made and why, like "Chose Vite because it starts fast".',
+  preference: 'How you like things done, like "Use short, plain answers".',
+  snippet: 'A piece of code you reuse. It is copied inside a code block.',
+  'file-note': 'A note about one file, like "api.ts holds all network calls".',
+}
+
+function Welcome({ hasProject }: { hasProject: boolean }) {
+  return (
+    <div className="welcome">
+      <div className="mascot" aria-hidden="true">
+        🧠
+      </div>
+      <h2>{hasProject ? 'Nothing saved here yet' : 'Welcome to Context Keeper'}</h2>
+      <p>Save what your AI should remember, then paste it into any chat with one click.</p>
+      <ol>
+        <li className={hasProject ? 'done' : ''}>Create a project, one per thing you are building.</li>
+        <li>
+          Add entries: facts, decisions and notes. Press <kbd>n</kbd> for a new one.
+        </li>
+        <li>Tick the ones you want and press Copy. Paste into your AI chat.</li>
+      </ol>
+    </div>
+  )
+}
+
 function download(name: string, text: string, type: string) {
   const a = document.createElement('a')
   a.href = URL.createObjectURL(new Blob([text], { type }))
@@ -87,7 +122,9 @@ export function App() {
   return (
     <div className="app">
       <aside>
-        <h1>Context Keeper</h1>
+        <h1>
+          <span aria-hidden="true">🧠</span> Context Keeper
+        </h1>
         <p className="tag">Local-first memory for your AI chats. Nothing leaves this browser.</p>
         <ul className="projects">
           {data.projects.map((p) => (
@@ -104,7 +141,9 @@ export function App() {
             </li>
           ))}
         </ul>
-        <button onClick={addProject}>+ New project</button>
+        <button className="primary" onClick={addProject}>
+          + New project
+        </button>
         {project && (
           <button
             className="danger"
@@ -112,17 +151,17 @@ export function App() {
               confirm(`Delete "${project.name}" and its entries?`) && store.removeProject(project.id)
             }
           >
-            Delete project
+            🗑 Delete project
           </button>
         )}
         <div className="io">
           <button onClick={() => download('context-keeper.json', exportJson(data), 'application/json')}>
-            Export JSON
+            ⬇ Export JSON
           </button>
           <button onClick={() => download('context-keeper.md', exportMarkdown(data), 'text/markdown')}>
-            Export Markdown
+            ⬇ Export Markdown
           </button>
-          <button onClick={() => importRef.current?.click()}>Import JSON</button>
+          <button onClick={() => importRef.current?.click()}>⬆ Import JSON</button>
           <input
             ref={importRef}
             type="file"
@@ -138,7 +177,7 @@ export function App() {
 
       <main>
         {!project ? (
-          <p className="empty">Create a project to start saving context.</p>
+          <Welcome hasProject={false} />
         ) : (
           <>
             <div className="bar">
@@ -148,44 +187,49 @@ export function App() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
-              <button onClick={() => setEditing({ kind: 'fact', title: '', body: '' })}>+ Entry (n)</button>
+              <button className="primary" onClick={() => setEditing({ kind: 'fact', title: '', body: '' })}>
+                + Entry (n)
+              </button>
             </div>
             <ul className="entries">
               {visible.map((e) => (
-                <li key={e.id}>
+                <li key={e.id} className={`kind-${e.kind}`}>
                   <label>
                     <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggle(e.id)} />
-                    <span className="kind">{e.kind}</span>
+                    <span className="kind">
+                      {KIND_ICON[e.kind]} {e.kind}
+                    </span>
                     <strong>{e.title}</strong>
                   </label>
                   <p>{e.body}</p>
                   <div className="row">
-                    <button onClick={() => setEditing(e)}>Edit</button>
+                    <button onClick={() => setEditing(e)}>✏️ Edit</button>
                     <button className="danger" onClick={() => store.removeEntry(e.id)}>
-                      Delete
+                      🗑 Delete
                     </button>
                   </div>
                 </li>
               ))}
-              {visible.length === 0 && (
-                <li className="empty">{query ? 'No matches.' : 'No entries yet. Press n.'}</li>
-              )}
+              {visible.length === 0 && query && <li className="empty">No matches. Try a shorter word.</li>}
             </ul>
+            {visible.length === 0 && !query && <Welcome hasProject />}
             <section className="inject">
-              <h2>Inject context</h2>
+              <h2>📋 Copy for your AI chat</h2>
               <p>
                 {chosen.length} selected · ~{estimateTokens(context)} tokens
               </p>
               <pre>{chosen.length ? context : 'Tick entries above to build a paste-ready block.'}</pre>
-              <button disabled={!chosen.length} onClick={copy}>
-                Copy to clipboard
-              </button>
-              <button onClick={() => setSelected(new Set(visible.map((e) => e.id)))}>Select all</button>
+              <div className="row">
+                <button className="primary" disabled={!chosen.length} onClick={copy}>
+                  📋 Copy to clipboard
+                </button>
+                <button onClick={() => setSelected(new Set(visible.map((e) => e.id)))}>Select all</button>
+              </div>
             </section>
           </>
         )}
         {notice && (
-          <p role="status" className="notice">
+          <p role="status" className="notice" key={notice}>
             {notice}
           </p>
         )}
@@ -233,9 +277,12 @@ function EntryDialog(props: {
       >
         <select value={kind} onChange={(e) => setKind(e.target.value as EntryKind)}>
           {ENTRY_KINDS.map((k) => (
-            <option key={k}>{k}</option>
+            <option key={k} value={k}>
+              {KIND_ICON[k]} {k}
+            </option>
           ))}
         </select>
+        <p className="hint">{KIND_HELP[kind]}</p>
         <input
           ref={titleRef}
           autoFocus
@@ -254,7 +301,9 @@ function EntryDialog(props: {
         )}
         <textarea placeholder="Details" rows={8} value={body} onChange={(e) => setBody(e.target.value)} />
         <div className="row">
-          <button type="submit">Save</button>
+          <button type="submit" className="primary">
+            Save
+          </button>
           <button type="button" onClick={props.onCancel}>
             Cancel
           </button>

@@ -1,19 +1,62 @@
 :root {
-  --bg: #fff;
+  --bg: #fbfbfd;
   --fg: #1b1d21;
-  --muted: #666c75;
-  --line: #dfe2e7;
+  --muted: #5f6672;
+  --line: #e3e6ec;
   --accent: #4f46e5;
+  --accent-fg: #fff;
   --danger: #c0392b;
-  --panel: #f6f7f9;
+  --panel: #f1f2f6;
+  --card: #fff;
+  --side: #f3f4f9;
+  --shadow: 0 1px 2px #1b1d2110, 0 4px 14px #1b1d2108;
+  --shadow-up: 0 2px 4px #1b1d2112, 0 10px 24px #1b1d2114;
+  --k-fact: #2563eb;
+  --k-decision: #15803d;
+  --k-preference: #b45309;
+  --k-snippet: #7c3aed;
+  --k-file-note: #4b5563;
   @media (prefers-color-scheme: dark) {
     --bg: #14161a;
     --fg: #e8eaee;
     --muted: #9aa1ab;
     --line: #2a2e35;
     --accent: #8b85ff;
+    --accent-fg: #14161a;
     --danger: #ff7b6b;
     --panel: #1b1e23;
+    --card: #191c21;
+    --side: #101215;
+    --shadow: 0 1px 2px #0006;
+    --shadow-up: 0 6px 20px #0008;
+    --k-fact: #6ea8ff;
+    --k-decision: #5fd18a;
+    --k-preference: #f0b35a;
+    --k-snippet: #b79bff;
+    --k-file-note: #a8b0bc;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+@keyframes bob {
+  50% {
+    transform: translateY(-6px);
+  }
+}
+@keyframes fade {
+  from {
+    opacity: 0;
   }
 }
 
@@ -25,7 +68,7 @@ body {
   background: var(--bg);
   color: var(--fg);
   font:
-    15px/1.5 system-ui,
+    15px/1.55 system-ui,
     sans-serif;
 }
 button,
@@ -34,15 +77,23 @@ select,
 textarea {
   font: inherit;
   color: inherit;
-  background: var(--panel);
+  background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 6px 10px;
+  border-radius: 8px;
+  padding: 7px 12px;
 }
 button {
   cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
   &:hover:not(:disabled) {
     border-color: var(--accent);
+    box-shadow: var(--shadow);
+  }
+  &:active:not(:disabled) {
+    transform: scale(0.96);
   }
   &:disabled {
     opacity: 0.5;
@@ -53,17 +104,30 @@ button {
   }
   &.on {
     border-color: var(--accent);
-    background: var(--bg);
+    background: color-mix(in srgb, var(--accent) 12%, var(--card));
+    font-weight: 600;
+  }
+  &.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-fg);
+    font-weight: 600;
   }
 }
 :focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 kbd {
   border: 1px solid var(--line);
   border-radius: 4px;
   padding: 0 4px;
+  background: var(--card);
+}
+.hint {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
 }
 
 .app {
@@ -77,6 +141,7 @@ kbd {
 aside {
   padding: 20px 16px;
   border-right: 1px solid var(--line);
+  background: var(--side);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -84,8 +149,7 @@ aside {
     margin: 0;
     font-size: 20px;
   }
-  .tag,
-  .hint {
+  .tag {
     color: var(--muted);
     font-size: 13px;
     margin: 0;
@@ -108,7 +172,7 @@ aside {
   margin-top: 8px;
 }
 main {
-  padding: 20px;
+  padding: 24px;
   max-width: 860px;
   width: 100%;
 }
@@ -123,14 +187,48 @@ main {
   list-style: none;
   padding: 0;
   li {
+    --kc: var(--accent);
     border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 10px 14px;
-    margin: 10px 0;
+    border-left: 4px solid var(--kc);
+    border-radius: 10px;
+    background: var(--card);
+    box-shadow: var(--shadow);
+    padding: 12px 16px;
+    margin: 12px 0;
+    animation: rise 0.25s ease both;
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease;
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-up);
+    }
+    &.kind-fact {
+      --kc: var(--k-fact);
+    }
+    &.kind-decision {
+      --kc: var(--k-decision);
+    }
+    &.kind-preference {
+      --kc: var(--k-preference);
+    }
+    &.kind-snippet {
+      --kc: var(--k-snippet);
+    }
+    &.kind-file-note {
+      --kc: var(--k-file-note);
+    }
     p {
-      margin: 6px 0;
+      margin: 6px 0 10px;
       white-space: pre-wrap;
       color: var(--muted);
+    }
+    &.kind-snippet p {
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 13px;
+      background: var(--panel);
+      padding: 8px 10px;
+      border-radius: 6px;
     }
     label {
       display: flex;
@@ -141,8 +239,13 @@ main {
 }
 .kind {
   font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
-  color: var(--accent);
+  letter-spacing: 0.04em;
+  color: var(--kc);
+  background: color-mix(in srgb, var(--kc) 14%, transparent);
+  padding: 2px 8px;
+  border-radius: 999px;
 }
 .row {
   display: flex;
@@ -150,15 +253,45 @@ main {
 }
 .inject {
   border-top: 1px solid var(--line);
-  margin-top: 20px;
+  margin-top: 24px;
   padding-top: 12px;
   pre {
     background: var(--panel);
     padding: 12px;
-    border-radius: 8px;
+    border-radius: 10px;
     max-height: 260px;
     overflow: auto;
     white-space: pre-wrap;
+  }
+}
+.welcome {
+  text-align: center;
+  padding: 32px 16px;
+  animation: rise 0.35s ease both;
+  .mascot {
+    font-size: 56px;
+    display: inline-block;
+    animation: bob 2.4s ease-in-out infinite;
+  }
+  h2 {
+    margin: 8px 0 4px;
+  }
+  p {
+    color: var(--muted);
+    margin: 0 auto 16px;
+    max-width: 46ch;
+  }
+  ol {
+    text-align: left;
+    display: inline-block;
+    padding-left: 22px;
+    li {
+      margin: 6px 0;
+    }
+    .done {
+      color: var(--muted);
+      text-decoration: line-through;
+    }
   }
 }
 .empty,
@@ -167,7 +300,12 @@ main {
   padding: 20px;
 }
 .notice {
+  display: inline-block;
   color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  padding: 4px 12px;
+  border-radius: 999px;
+  animation: pop 0.2s ease both;
 }
 .error {
   color: var(--danger);
@@ -179,12 +317,24 @@ main {
   background: #0008;
   display: grid;
   place-items: center;
+  animation: fade 0.15s ease both;
   form {
     background: var(--bg);
     padding: 20px;
-    border-radius: 10px;
+    border-radius: 14px;
+    box-shadow: var(--shadow-up);
     width: min(560px, 92vw);
     display: grid;
     gap: 10px;
+    animation: pop 0.18s ease both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
   }
 }
