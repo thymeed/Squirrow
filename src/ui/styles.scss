@@ -360,10 +360,18 @@ main {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --scenery: url('./scenery-light-still.svg');
+  }
   *,
   *::before,
   *::after {
     animation: none !important;
     transition: none !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) and (prefers-color-scheme: dark) {
+  :root {
+    --scenery: url('./scenery-dark-still.svg');
   }
 }
