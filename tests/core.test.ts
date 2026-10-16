@@ -7,7 +7,12 @@ import { newId, type Entry, type Project, type Snapshot } from '../src/core/type
 
 const project: Project = { id: newId(), name: 'Demo', createdAt: 1 }
 const entry = (title: string, body = '', kind: Entry['kind'] = 'fact', updatedAt = 1): Entry => ({
-  id: newId(), projectId: project.id, kind, title, body, updatedAt,
+  id: newId(),
+  projectId: project.id,
+  kind,
+  title,
+  body,
+  updatedAt,
 })
 const snapshot = (entries: Entry[]): Snapshot => ({ version: 1, projects: [project], entries })
 
@@ -26,7 +31,10 @@ describe('search', () => {
 
 describe('inject', () => {
   it('groups by kind and fences snippets', () => {
-    const text = buildContext(project, [entry('Use tabs', 'always', 'preference'), entry('helper', 'x = 1', 'snippet')])
+    const text = buildContext(project, [
+      entry('Use tabs', 'always', 'preference'),
+      entry('helper', 'x = 1', 'snippet'),
+    ])
     expect(text).toContain('## Preferences\n- **Use tabs**: always')
     expect(text).toContain('### helper\n```\nx = 1\n```')
   })
@@ -43,7 +51,15 @@ describe('portability', () => {
   it('rejects bad input with a readable error', () => {
     expect(() => parseSnapshot('nope')).toThrow('valid JSON')
     expect(() => parseSnapshot('{"version":2}')).toThrow('Not a Context Keeper')
-    expect(() => parseSnapshot(JSON.stringify({ version: 1, projects: [], entries: [{ id: 'x', projectId: 'y', kind: 'fact', title: 't' }] }))).toThrow('Invalid entry')
+    expect(() =>
+      parseSnapshot(
+        JSON.stringify({
+          version: 1,
+          projects: [],
+          entries: [{ id: 'x', projectId: 'y', kind: 'fact', title: 't' }],
+        }),
+      ),
+    ).toThrow('Invalid entry')
   })
 })
 

@@ -5,7 +5,9 @@ export const exportJson = (s: Snapshot): string => JSON.stringify(s, null, 2)
 export function exportMarkdown(s: Snapshot): string {
   return s.projects
     .map((p) => {
-      const rows = s.entries.filter((e) => e.projectId === p.id).map((e) => `- [${e.kind}] **${e.title}**: ${e.body}`)
+      const rows = s.entries
+        .filter((e) => e.projectId === p.id)
+        .map((e) => `- [${e.kind}] **${e.title}**: ${e.body}`)
       return `# ${p.name}\n\n${rows.join('\n')}\n`
     })
     .join('\n')
@@ -25,7 +27,8 @@ export function parseSnapshot(text: string): Snapshot {
     throw new Error('Not a Context Keeper export (expected version 1)')
   }
   const projects = raw.projects.map((p): Project => {
-    if (!isObj(p) || typeof p.id !== 'string' || typeof p.name !== 'string') throw new Error('Invalid project in file')
+    if (!isObj(p) || typeof p.id !== 'string' || typeof p.name !== 'string')
+      throw new Error('Invalid project in file')
     return { id: p.id as Project['id'], name: p.name, createdAt: Number(p.createdAt) || 0 }
   })
   const ids = new Set<string>(projects.map((p) => p.id))
