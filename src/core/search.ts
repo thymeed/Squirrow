@@ -1,6 +1,10 @@
 import type { Entry } from './types'
 
-const tokenize = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+const tokenize = (s: string) =>
+  s
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
 
 /** Every query term must prefix-match a word in the entry. Title hits weigh 3x body hits. */
 export function searchEntries(entries: Entry[], query: string): Entry[] {
