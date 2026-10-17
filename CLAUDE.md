@@ -27,6 +27,6 @@ Local-first React 19 + TypeScript + Vite app that stores per-project AI context 
 ## Status
 
 - MVP is built and CI is green. Live at https://context-keeper.thymeed.workers.dev, deployed by Cloudflare Workers Builds from `main` (`wrangler.jsonc` publishes `dist`).
-- Done: PWA (manifest, icons, offline service worker in `public/`), landing copy and SEO tags in `index.html`.
-- Open: outside tester round, owner acceptance, then the v1.0.0 tag (notes in `CHANGELOG.md`) and making the repo public. Cloudflare builds for PR branches fail instantly; production builds from `main` succeed.
+- Done: PWA (manifest, icons, offline service worker in `public/`), landing copy and SEO tags in `index.html`, v1.0.0 released 2026-10-17 after a live check of the v3 service worker upgrade.
+- Open: making the repo public, outside tester feedback (goes into 1.0.x). Cloudflare preview builds for PR branches still fail instantly; turn them off under Workers → context-keeper → Settings → Builds → Previews. Production builds from `main` succeed.
 - Not done: list virtualization (skipped on purpose). After changing the service worker caching, bump `CACHE` in `public/sw.js`.
