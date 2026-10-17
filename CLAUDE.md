@@ -1,6 +1,6 @@
 # Context Keeper: agent handoff
 
-Local-first React 19 + TypeScript + Vite app that stores per-project AI context (facts, decisions, preferences, snippets, file notes) in IndexedDB and copies a chosen set as Markdown. No backend. Repo: thymeed/context-keeper (private until the owner flips it public).
+Local-first React 19 + TypeScript + Vite app that stores per-project AI context (facts, decisions, preferences, snippets, file notes) in IndexedDB and copies a chosen set as Markdown. No backend. Repo: thymeed/context-keeper (public).
 
 ## Commands
 
@@ -28,5 +28,5 @@ Local-first React 19 + TypeScript + Vite app that stores per-project AI context 
 
 - MVP is built and CI is green. Live at https://context-keeper.thymeed.workers.dev, deployed by Cloudflare Workers Builds from `main` (`wrangler.jsonc` publishes `dist`).
 - Done: PWA (manifest, icons, offline service worker in `public/`), landing copy and SEO tags in `index.html`, v1.0.0 released 2026-10-17 after a live check of the v3 service worker upgrade.
-- Open: making the repo public, outside tester feedback (goes into 1.0.x). Cloudflare preview builds for PR branches still fail instantly; turn them off under Workers → context-keeper → Settings → Builds → Previews. Production builds from `main` succeed.
+- Open: outside tester feedback (goes into 1.0.x). Cloudflare builds only run for `main`; preview builds for PR branches are switched off, so PRs show just the GitHub `test` check.
 - Not done: list virtualization (skipped on purpose). After changing the service worker caching, bump `CACHE` in `public/sw.js`.
