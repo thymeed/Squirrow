@@ -12,7 +12,7 @@ function loadWorker(
 ) {
   const handlers: Record<string, (event: unknown) => void> = {}
   const put = vi.fn()
-  const remove = vi.fn(async () => true)
+  const remove = vi.fn(async (_name: string) => true)
   const claim = vi.fn(async () => {})
   const self = {
     location: { origin: 'https://app.test' },
