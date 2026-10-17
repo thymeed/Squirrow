@@ -1,3 +1,4 @@
+import { afterLabel, fenceBlock, oneLine } from './markdown'
 import type { Entry, EntryKind, Project } from './types'
 
 /** Rough heuristic: about 4 characters per token for English text. */
@@ -11,8 +12,6 @@ const HEADINGS: Record<EntryKind, string> = {
   'file-note': 'File notes',
 }
 
-const FENCE = '```'
-
 export function buildContext(project: Project, entries: Entry[]): string {
   const lines = [`# Context: ${project.name}`, '']
   for (const kind of Object.keys(HEADINGS) as EntryKind[]) {
@@ -22,8 +21,8 @@ export function buildContext(project: Project, entries: Entry[]): string {
     for (const e of group) {
       lines.push(
         kind === 'snippet'
-          ? `### ${e.title}\n${FENCE}\n${e.body}\n${FENCE}`
-          : `- **${e.title}**${e.body ? `: ${e.body}` : ''}`,
+          ? `### ${oneLine(e.title)}\n${fenceBlock(e.body)}`
+          : `- **${oneLine(e.title)}**${e.body ? afterLabel(e.body) : ''}`,
       )
     }
     lines.push('')

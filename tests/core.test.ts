@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildContext, estimateTokens } from '../src/core/inject'
-import { MAX_IMPORT_CHARS, exportJson, parseSnapshot } from '../src/core/portability'
+import { MAX_IMPORT_CHARS, exportJson, exportMarkdown, parseSnapshot } from '../src/core/portability'
 import { createIndexedDbRepository } from '../src/core/repository'
 import { searchEntries } from '../src/core/search'
 import { newId, type Entry, type Project, type Snapshot } from '../src/core/types'
@@ -38,6 +38,18 @@ describe('inject', () => {
     expect(text).toContain('## Preferences\n- **Use tabs**: always')
     expect(text).toContain('### helper\n```\nx = 1\n```')
   })
+  it('fences a snippet that contains ``` with a longer fence', () => {
+    const text = buildContext(project, [entry('helper', 'a\n```\nb', 'snippet')])
+    expect(text).toContain('### helper\n````\na\n```\nb\n````')
+  })
+  it('fences a non-snippet body that contains ```', () => {
+    const text = buildContext(project, [entry('Run it', 'use:\n```\nnpm test\n```')])
+    expect(text).toContain('- **Run it**:\n````\nuse:\n```\nnpm test\n```\n````')
+  })
+  it('keeps a multi-line title on one line', () => {
+    const text = buildContext(project, [entry('one\n```\ntwo', 'x', 'snippet')])
+    expect(text).toContain('### one ``` two\n```\nx\n```')
+  })
   it('estimates tokens at 4 chars each, rounded up', () => {
     expect(estimateTokens('abcde')).toBe(2)
   })
@@ -60,6 +72,14 @@ describe('portability', () => {
         }),
       ),
     ).toThrow('Invalid entry')
+  })
+  it('exports plain entries as Markdown rows', () => {
+    expect(exportMarkdown(snapshot([entry('A', 'b')]))).toBe('# Demo\n\n- [fact] **A**: b\n')
+  })
+  it('exports a body containing ``` inside a longer fence', () => {
+    expect(exportMarkdown(snapshot([entry('Run it', 'x\n```\ny')]))).toContain(
+      '- [fact] **Run it**:\n````\nx\n```\ny\n````',
+    )
   })
   it('accepts a snapshot whose ids are all unique', () => {
     const s = snapshot([entry('A'), entry('B'), entry('C')])

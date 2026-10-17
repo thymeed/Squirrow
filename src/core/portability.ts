@@ -1,3 +1,4 @@
+import { afterLabel, oneLine } from './markdown'
 import { ENTRY_KINDS, type Entry, type Project, type Snapshot } from './types'
 
 export const exportJson = (s: Snapshot): string => JSON.stringify(s, null, 2)
@@ -7,8 +8,8 @@ export function exportMarkdown(s: Snapshot): string {
     .map((p) => {
       const rows = s.entries
         .filter((e) => e.projectId === p.id)
-        .map((e) => `- [${e.kind}] **${e.title}**: ${e.body}`)
-      return `# ${p.name}\n\n${rows.join('\n')}\n`
+        .map((e) => `- [${e.kind}] **${oneLine(e.title)}**${afterLabel(e.body)}`)
+      return `# ${oneLine(p.name)}\n\n${rows.join('\n')}\n`
     })
     .join('\n')
 }
