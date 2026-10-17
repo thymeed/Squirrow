@@ -26,6 +26,7 @@ Local-first React 19 + TypeScript + Vite app that stores per-project AI context 
 
 ## Status
 
-- MVP is built and CI is green. Cloudflare Pages deploy is pending the owner's account login (dashboard: build `npm run build`, output `dist`).
-- Open: Issue #1, empty-title message in the entry dialog.
-- Not done: PWA manifest and service worker, landing page and SEO copy, Lighthouse run, list virtualization (skipped on purpose), outside tester feedback.
+- MVP is built and CI is green. Live at https://context-keeper.thymeed.workers.dev, deployed by Cloudflare Workers Builds from `main` (`wrangler.jsonc` publishes `dist`).
+- Done: PWA (manifest, icons, offline service worker in `public/`), landing copy and SEO tags in `index.html`.
+- Open: none.
+- Not done: list virtualization (skipped on purpose), outside tester feedback. After changing the service worker caching, bump `CACHE` in `public/sw.js`.
