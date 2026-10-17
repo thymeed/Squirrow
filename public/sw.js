@@ -1,4 +1,4 @@
-const CACHE = 'context-keeper-v2'
+const CACHE = 'context-keeper-v3'
 
 async function precache() {
   const cache = await caches.open(CACHE)
@@ -34,8 +34,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone()
-          caches.open(CACHE).then((c) => c.put('/', copy))
+          if (res.ok) {
+            const copy = res.clone()
+            caches.open(CACHE).then((c) => c.put('/', copy))
+          }
           return res
         })
         .catch(() => caches.match('/')),
@@ -51,7 +53,9 @@ self.addEventListener('fetch', (event) => {
         }
         return res
       })
-      return hit ?? fresh
+      if (!hit) return fresh
+      fresh.catch(() => {}) // Offline: the cached copy is enough.
+      return hit
     }),
   )
 })

@@ -45,7 +45,8 @@ function download(name: string, text: string, type: string) {
   a.href = URL.createObjectURL(new Blob([text], { type }))
   a.download = name
   a.click()
-  URL.revokeObjectURL(a.href)
+  // Some browsers start the download after click() returns, so revoke later.
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000)
 }
 
 export function App() {
@@ -60,15 +61,12 @@ export function App() {
   const importRef = useRef<HTMLInputElement>(null)
 
   const project = data.projects.find((p) => p.id === projectId) ?? data.projects[0] ?? null
-  const visible = useMemo(
-    () =>
-      searchEntries(
-        data.entries.filter((e) => e.projectId === project?.id),
-        query,
-      ),
-    [data.entries, project?.id, query],
+  const projectEntries = useMemo(
+    () => data.entries.filter((e) => e.projectId === project?.id),
+    [data.entries, project?.id],
   )
-  const chosen = visible.filter((e) => selected.has(e.id))
+  const visible = useMemo(() => searchEntries(projectEntries, query), [projectEntries, query])
+  const chosen = projectEntries.filter((e) => selected.has(e.id))
   const context = project ? buildContext(project, chosen) : ''
 
   useEffect(() => {
@@ -76,7 +74,7 @@ export function App() {
       const typing =
         ev.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ev.target.tagName)
       if (ev.key === 'Escape') setEditing(null)
-      if (typing) return
+      if (typing || ev.ctrlKey || ev.metaKey || ev.altKey) return
       if (ev.key === '/') {
         ev.preventDefault()
         searchRef.current?.focus()
@@ -103,8 +101,12 @@ export function App() {
   }
 
   const copy = async () => {
-    await navigator.clipboard.writeText(context)
-    setNotice(`Copied ~${estimateTokens(context)} tokens`)
+    try {
+      await navigator.clipboard.writeText(context)
+      setNotice(`Copied ~${estimateTokens(context)} tokens`)
+    } catch {
+      setNotice("Couldn't copy. Your browser blocked the clipboard, so select the text below and copy it.")
+    }
   }
 
   const onImport = async (file: File | undefined) => {

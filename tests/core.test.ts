@@ -50,6 +50,11 @@ describe('inject', () => {
     const text = buildContext(project, [entry('one\n```\ntwo', 'x', 'snippet')])
     expect(text).toContain('### one ``` two\n```\nx\n```')
   })
+  it('keeps every line of a multi-line body inside its list item', () => {
+    const text = buildContext(project, [entry('Notes', 'line one\n## not a section'), entry('Next')])
+    expect(text).toContain('- **Notes**: line one\n  ## not a section\n- **Next**')
+    expect(exportMarkdown(snapshot([entry('Notes', 'a\n# b')]))).toContain('**Notes**: a\n  # b')
+  })
   it('estimates tokens at 4 chars each, rounded up', () => {
     expect(estimateTokens('abcde')).toBe(2)
   })
