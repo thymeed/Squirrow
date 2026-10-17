@@ -119,6 +119,12 @@ export function App() {
     }
   }
 
+  if (store.error)
+    return (
+      <p role="alert" className="loading error">
+        {store.error}
+      </p>
+    )
   if (!store.ready) return <p className="loading">Loading...</p>
 
   return (
