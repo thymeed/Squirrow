@@ -1,7 +1,20 @@
-const CACHE = 'context-keeper-v1'
+const CACHE = 'context-keeper-v2'
+
+async function precache() {
+  const cache = await caches.open(CACHE)
+  await cache.addAll(['/', '/manifest.webmanifest', '/icon-192.png'])
+  const assets = new Set()
+  const scan = async (url) => {
+    const text = await (await fetch(url)).text()
+    for (const m of text.matchAll(/\/assets\/[\w.-]+\.\w+/g)) assets.add(m[0])
+  }
+  await scan('/')
+  for (const url of [...assets].filter((u) => u.endsWith('.css'))) await scan(url)
+  await cache.addAll([...assets])
+}
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(['/', '/manifest.webmanifest', '/icon-192.png'])))
+  event.waitUntil(precache())
   self.skipWaiting()
 })
 
