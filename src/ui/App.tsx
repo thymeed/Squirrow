@@ -73,7 +73,7 @@ export function App() {
       const typing =
         ev.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ev.target.tagName)
       if (ev.key === 'Escape') setEditing(null)
-      if (typing) return
+      if (typing || ev.ctrlKey || ev.metaKey || ev.altKey) return
       if (ev.key === '/') {
         ev.preventDefault()
         searchRef.current?.focus()

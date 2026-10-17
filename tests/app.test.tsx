@@ -108,6 +108,19 @@ describe('app smoke', () => {
     expect(host.querySelector('.inject pre')!.textContent).toContain('**Alpha**')
   })
 
+  it('opens a new entry on n but leaves Ctrl+N and Cmd+N to the browser', async () => {
+    await addProject('Demo')
+    const press = (init: KeyboardEventInit) =>
+      act(async () =>
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', cancelable: true, ...init })),
+      )
+    await press({ ctrlKey: true })
+    await press({ metaKey: true })
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
+    await press({})
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+  })
+
   it('tells the user when the clipboard refuses the copy', async () => {
     vi.stubGlobal('navigator', { clipboard: { writeText: () => Promise.reject(new Error('denied')) } })
     await addProject('Demo')
