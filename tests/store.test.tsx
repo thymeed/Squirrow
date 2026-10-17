@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Repository } from '../src/core/repository'
 import { useStore } from '../src/core/store'
 import { newId, type Snapshot } from '../src/core/types'
@@ -32,9 +32,13 @@ async function renderStore(repo: Repository) {
 
 describe('store', () => {
   it('reports an error instead of loading forever when load fails', async () => {
-    const store = await renderStore(fakeRepo(() => Promise.reject(new Error('blocked'))))
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const cause = new Error('blocked')
+    const store = await renderStore(fakeRepo(() => Promise.reject(cause)))
     expect(store.ready).toBe(false)
     expect(store.error).toBe("Couldn't load your data")
+    expect(log).toHaveBeenCalledWith(cause)
+    log.mockRestore()
   })
   it('becomes ready with the loaded data when load succeeds', async () => {
     const data: Snapshot = {

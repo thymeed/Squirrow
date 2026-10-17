@@ -17,7 +17,10 @@ export function useStore(repo?: Repository) {
         setData(s)
         setReady(true)
       })
-      .catch(() => setError("Couldn't load your data"))
+      .catch((err) => {
+        console.error(err)
+        setError("Couldn't load your data")
+      })
   }, [repository])
 
   const addProject = useCallback(
