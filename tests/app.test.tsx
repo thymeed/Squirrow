@@ -97,6 +97,16 @@ describe('app smoke', () => {
     expect(text()).toContain('Copied ~')
   })
 
+  it('tells the user when the clipboard refuses the copy', async () => {
+    vi.stubGlobal('navigator', { clipboard: { writeText: () => Promise.reject(new Error('denied')) } })
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    await tick('Use Postgres')
+    await click(button('Copy to clipboard'))
+    await until(() => text().includes("Couldn't copy"))
+    expect(text()).not.toContain('Copied ~')
+  })
+
   it('shows a readable error when an import file is invalid', async () => {
     const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
     Object.defineProperty(input, 'files', { value: [new File(['nope'], 'bad.json')] })

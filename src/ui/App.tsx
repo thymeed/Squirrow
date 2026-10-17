@@ -103,8 +103,12 @@ export function App() {
   }
 
   const copy = async () => {
-    await navigator.clipboard.writeText(context)
-    setNotice(`Copied ~${estimateTokens(context)} tokens`)
+    try {
+      await navigator.clipboard.writeText(context)
+      setNotice(`Copied ~${estimateTokens(context)} tokens`)
+    } catch {
+      setNotice("Couldn't copy. Your browser blocked the clipboard, so select the text below and copy it.")
+    }
   }
 
   const onImport = async (file: File | undefined) => {
