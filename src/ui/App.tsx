@@ -60,15 +60,12 @@ export function App() {
   const importRef = useRef<HTMLInputElement>(null)
 
   const project = data.projects.find((p) => p.id === projectId) ?? data.projects[0] ?? null
-  const visible = useMemo(
-    () =>
-      searchEntries(
-        data.entries.filter((e) => e.projectId === project?.id),
-        query,
-      ),
-    [data.entries, project?.id, query],
+  const projectEntries = useMemo(
+    () => data.entries.filter((e) => e.projectId === project?.id),
+    [data.entries, project?.id],
   )
-  const chosen = visible.filter((e) => selected.has(e.id))
+  const visible = useMemo(() => searchEntries(projectEntries, query), [projectEntries, query])
+  const chosen = projectEntries.filter((e) => selected.has(e.id))
   const context = project ? buildContext(project, chosen) : ''
 
   useEffect(() => {

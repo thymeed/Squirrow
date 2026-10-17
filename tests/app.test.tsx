@@ -97,6 +97,17 @@ describe('app smoke', () => {
     expect(text()).toContain('Copied ~')
   })
 
+  it('keeps ticked entries in the copy while a search hides them', async () => {
+    await addProject('Demo')
+    await addEntry('Alpha')
+    await addEntry('Beta')
+    await tick('Alpha')
+    await act(async () => type(host.querySelector<HTMLInputElement>('.bar input')!, 'beta'))
+    await tick('Beta')
+    expect(text()).toContain('2 selected')
+    expect(host.querySelector('.inject pre')!.textContent).toContain('**Alpha**')
+  })
+
   it('tells the user when the clipboard refuses the copy', async () => {
     vi.stubGlobal('navigator', { clipboard: { writeText: () => Promise.reject(new Error('denied')) } })
     await addProject('Demo')
