@@ -121,6 +121,28 @@ describe('app smoke', () => {
     expect(host.querySelector('[role="dialog"]')).not.toBeNull()
   })
 
+  it('keeps the export link alive until the download has started', async () => {
+    const revoke = vi.fn()
+    vi.stubGlobal(
+      'URL',
+      class extends URL {
+        static createObjectURL = () => 'blob:export'
+        static revokeObjectURL = revoke
+      },
+    )
+    const clicked = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    vi.useFakeTimers()
+    try {
+      await click(button('Export JSON'))
+      expect(clicked).toHaveBeenCalled()
+      expect(revoke).not.toHaveBeenCalled()
+      vi.runAllTimers()
+      expect(revoke).toHaveBeenCalledWith('blob:export')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('tells the user when the clipboard refuses the copy', async () => {
     vi.stubGlobal('navigator', { clipboard: { writeText: () => Promise.reject(new Error('denied')) } })
     await addProject('Demo')

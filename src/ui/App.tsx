@@ -45,7 +45,8 @@ function download(name: string, text: string, type: string) {
   a.href = URL.createObjectURL(new Blob([text], { type }))
   a.download = name
   a.click()
-  URL.revokeObjectURL(a.href)
+  // Some browsers start the download after click() returns, so revoke later.
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000)
 }
 
 export function App() {
