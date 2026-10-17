@@ -4,6 +4,8 @@ A local-first memory manager for your AI chats. Save facts, decisions, preferenc
 
 ![Context Keeper welcome screen with the pixel-art scenery](docs/screenshot.png)
 
+Live at https://context-keeper.thymeed.workers.dev. It is installable and works offline.
+
 ## What it does
 
 - **Projects** with five kinds of entry: fact, decision, preference, snippet and file note. Each kind has its own color and icon, and the entry dialog explains the chosen kind with an example.
@@ -35,7 +37,6 @@ React 19, TypeScript and Vite. Logic lives in `src/core` with no React imports: 
 - The token count is an estimate of about 4 characters per token, not a real tokenizer.
 - The list is not virtualized, which is fine for hundreds of entries. It would need changing for thousands.
 - Tests cover `src/core` only. There are no UI tests yet.
-- Not yet deployed, and not yet a PWA.
 
 ## Privacy
 

@@ -3,18 +3,72 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Context Keeper - local AI memory manager</title>
     <meta
       name="description"
       content="Context Keeper: a local-first memory manager for your AI chats. Store facts, decisions and preferences per project, then copy them into ChatGPT or Claude. No account, nothing leaves your browser."
     />
+    <link rel="canonical" href="https://context-keeper.thymeed.workers.dev/" />
     <meta name="theme-color" content="#4f46e5" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/png" href="/icon-192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <title>Context Keeper - local AI memory manager</title>
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Context Keeper" />
+    <meta property="og:title" content="Context Keeper - local AI memory manager" />
+    <meta
+      property="og:description"
+      content="Save what your AI should remember, then paste it into any chat with one click. No account, nothing leaves your browser."
+    />
+    <meta property="og:url" content="https://context-keeper.thymeed.workers.dev/" />
+    <meta property="og:image" content="https://context-keeper.thymeed.workers.dev/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Context Keeper",
+        "applicationCategory": "ProductivityApplication",
+        "operatingSystem": "Any (web browser)",
+        "description": "A local-first memory manager for your AI chats. Store facts, decisions, preferences, snippets and file notes per project, then copy them into ChatGPT, Claude or any assistant.",
+        "url": "https://context-keeper.thymeed.workers.dev/",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main
+        style="
+          max-width: 40rem;
+          margin: 0 auto;
+          padding: 2rem 1rem;
+          font:
+            16px/1.6 system-ui,
+            sans-serif;
+        "
+      >
+        <h1>Context Keeper</h1>
+        <p>
+          A local-first memory manager for your AI chats. Save what your AI should remember, then paste it
+          into ChatGPT, Claude or any assistant with one click. No account, and nothing leaves your browser.
+        </p>
+        <h2>How it works</h2>
+        <ol>
+          <li>Create a project, one per thing you are building.</li>
+          <li>Add entries: facts, decisions, preferences, snippets and file notes.</li>
+          <li>Tick the ones you want, check the token estimate, and copy a ready-to-paste Markdown block.</li>
+        </ol>
+        <h2>Questions</h2>
+        <h3>Where is my data stored?</h3>
+        <p>In your browser's IndexedDB on your own device. There is no backend, analytics or account.</p>
+        <h3>Does it work offline?</h3>
+        <p>Yes. Install it from your browser and it opens without a network.</p>
+        <h3>Can I back up or move my data?</h3>
+        <p>Yes. Export everything as JSON or Markdown, and import the JSON on another device.</p>
+        <noscript><p>Context Keeper needs JavaScript to run.</p></noscript>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
