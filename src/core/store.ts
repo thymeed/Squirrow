@@ -8,12 +8,16 @@ export function useStore(repo?: Repository) {
   const repository = useMemo(() => repo ?? createIndexedDbRepository(), [repo])
   const [data, setData] = useState<Snapshot>(EMPTY)
   const [ready, setReady] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    repository.load().then((s) => {
-      setData(s)
-      setReady(true)
-    })
+    repository
+      .load()
+      .then((s) => {
+        setData(s)
+        setReady(true)
+      })
+      .catch(() => setError("Couldn't load your data"))
   }, [repository])
 
   const addProject = useCallback(
@@ -68,7 +72,7 @@ export function useStore(repo?: Repository) {
     [repository],
   )
 
-  return { data, ready, addProject, removeProject, saveEntry, removeEntry, replaceAll }
+  return { data, ready, error, addProject, removeProject, saveEntry, removeEntry, replaceAll }
 }
 
 export type { EntryKind }
