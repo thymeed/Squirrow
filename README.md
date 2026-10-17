@@ -6,6 +6,18 @@ A local-first memory manager for your AI chats. Save facts, decisions, preferenc
 
 Live at https://context-keeper.thymeed.workers.dev. It is installable and works offline.
 
+## Install it as an app
+
+- **Chrome or Edge (desktop):** open the site and click the install icon at the right of the address bar.
+- **Android (Chrome):** open the menu and choose **Install app**.
+- **iPhone or iPad (Safari):** tap **Share**, then **Add to Home Screen**.
+
+After the first visit, the app opens without a connection.
+
+## Back up your data
+
+Your entries live only in this browser on this device. Clearing site data, using a private window, or switching browsers or devices means you won't see them. Use **Export JSON** now and then to keep a backup, and **Import JSON** to restore it or move it to another device.
+
 ## What it does
 
 - **Projects** with five kinds of entry: fact, decision, preference, snippet and file note. Each kind has its own color and icon, and the entry dialog explains the chosen kind with an example.
@@ -36,7 +48,7 @@ React 19, TypeScript and Vite. Logic lives in `src/core` with no React imports: 
 
 - The token count is an estimate of about 4 characters per token, not a real tokenizer.
 - The list is not virtualized, which is fine for hundreds of entries. It would need changing for thousands.
-- Tests cover `src/core` only. There are no UI tests yet.
+- Tests cover `src/core`, the main UI flows and the service worker. Browser-specific behavior such as installing and clipboard permissions is checked by hand.
 
 ## Privacy
 
