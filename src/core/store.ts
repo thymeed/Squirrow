@@ -11,16 +11,16 @@ export function useStore(repo?: Repository) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    repository
-      .load()
-      .then((s) => {
+    repository.load().then(
+      (s) => {
         setData(s)
         setReady(true)
-      })
-      .catch((err) => {
+      },
+      (err) => {
         console.error(err)
         setError("Couldn't load your data")
-      })
+      },
+    )
   }, [repository])
 
   const addProject = useCallback(
