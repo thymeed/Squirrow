@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createIndexedDbRepository, type Repository } from './repository'
-import { newId, type Entry, type EntryKind, type Id, type Project, type Snapshot } from './types'
+import { newId, type Entry, type Id, type Project, type Snapshot } from './types'
 
 const EMPTY: Snapshot = { version: 1, projects: [], entries: [] }
 
@@ -77,5 +77,3 @@ export function useStore(repo?: Repository) {
 
   return { data, ready, error, addProject, removeProject, saveEntry, removeEntry, replaceAll }
 }
-
-export type { EntryKind }

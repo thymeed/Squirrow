@@ -2,7 +2,7 @@
 
 A local-first memory manager for your AI chats. Save facts, decisions, preferences, snippets and file notes per project, then copy the ones you pick into ChatGPT, Claude or any other assistant. No account, no backend. Your data stays in your browser's IndexedDB.
 
-![Context Keeper welcome screen with the pixel-art scenery](docs/screenshot.png)
+![Context Keeper welcome screen with the pixel-art scenery](public/og.png)
 
 Live at https://context-keeper.thymeed.workers.dev. It is installable and works offline.
 

@@ -12,14 +12,14 @@ Local-first React 19 + TypeScript + Vite app that stores per-project AI context 
 - `src/core/types.ts` has the data types and `ENTRY_KINDS`.
 - `src/core/repository.ts` is the storage interface plus the IndexedDB implementation.
 - `src/core/store.ts` is the React hook that writes to the repository, then updates state.
-- `src/core/search.ts`, `inject.ts` and `portability.ts` hold the pure logic: ranking, context building and token estimate, import/export parsing.
+- `src/core/search.ts`, `inject.ts`, `markdown.ts` and `portability.ts` hold the pure logic: ranking, context building and token estimate, fence-safe Markdown helpers, import/export parsing.
 - `src/ui/App.tsx` holds all screens and keyboard shortcuts. `src/ui/styles.scss` holds all styling and the dark theme.
 - `tests/core.test.ts` covers `src/core`, `tests/store.test.tsx` the store hook, `tests/app.test.tsx` the main UI flows, and `tests/sw.test.ts` runs `public/sw.js` against fake caches.
 
 ## Rules for working here
 
 - The owner does not write code by hand. Explain behavior first, then name the file and function. Never ask them to edit code.
-- Keep core logic in `src/core` with no React imports. Parse untrusted input only in `parseSnapshot`.
+- Keep core logic in `src/core` with no React imports. `store.ts` is the only exception, as the hook between storage and the UI. Parse untrusted input only in `parseSnapshot`.
 - Work flows through GitHub: open an Issue, fix on a branch, open a PR, CI must be green. The owner does final acceptance before a release.
 - Commits end with the Co-Authored-By line from the session attribution.
 - Token budget: handle small tasks inline and avoid spawning subagents unless asked.
