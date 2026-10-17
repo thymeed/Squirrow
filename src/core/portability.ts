@@ -13,10 +13,14 @@ export function exportMarkdown(s: Snapshot): string {
     .join('\n')
 }
 
+/** Rough guard against huge files: about 10 MB of text, far beyond any real export. */
+export const MAX_IMPORT_CHARS = 10_000_000
+
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
 
 /** Parses untrusted JSON into a Snapshot, throwing a readable error on any shape mismatch. */
 export function parseSnapshot(text: string): Snapshot {
+  if (text.length > MAX_IMPORT_CHARS) throw new Error('File is too large to import (limit 10 MB)')
   let raw: unknown
   try {
     raw = JSON.parse(text)
@@ -32,6 +36,8 @@ export function parseSnapshot(text: string): Snapshot {
     return { id: p.id as Project['id'], name: p.name, createdAt: Number(p.createdAt) || 0 }
   })
   const ids = new Set<string>(projects.map((p) => p.id))
+  if (ids.size !== projects.length) throw new Error('Duplicate project id in file')
+  const entryIds = new Set<string>()
   const entries = raw.entries.map((e): Entry => {
     if (
       !isObj(e) ||
@@ -43,6 +49,8 @@ export function parseSnapshot(text: string): Snapshot {
     ) {
       throw new Error('Invalid entry in file')
     }
+    if (entryIds.has(e.id)) throw new Error('Duplicate entry id in file')
+    entryIds.add(e.id)
     return {
       id: e.id as Entry['id'],
       projectId: e.projectId as Entry['projectId'],

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildContext, estimateTokens } from '../src/core/inject'
-import { exportJson, parseSnapshot } from '../src/core/portability'
+import { MAX_IMPORT_CHARS, exportJson, parseSnapshot } from '../src/core/portability'
 import { createIndexedDbRepository } from '../src/core/repository'
 import { searchEntries } from '../src/core/search'
 import { newId, type Entry, type Project, type Snapshot } from '../src/core/types'
@@ -60,6 +60,21 @@ describe('portability', () => {
         }),
       ),
     ).toThrow('Invalid entry')
+  })
+  it('accepts a snapshot whose ids are all unique', () => {
+    const s = snapshot([entry('A'), entry('B'), entry('C')])
+    expect(parseSnapshot(exportJson(s)).entries).toHaveLength(3)
+  })
+  it('rejects duplicate project ids', () => {
+    const s = { ...snapshot([]), projects: [project, { ...project, name: 'Copy' }] }
+    expect(() => parseSnapshot(exportJson(s))).toThrow('Duplicate project id')
+  })
+  it('rejects duplicate entry ids', () => {
+    const a = entry('A')
+    expect(() => parseSnapshot(exportJson(snapshot([a, { ...a, title: 'B' }])))).toThrow('Duplicate entry id')
+  })
+  it('rejects files over the size limit before parsing', () => {
+    expect(() => parseSnapshot(' '.repeat(MAX_IMPORT_CHARS + 1))).toThrow('too large')
   })
 })
 
