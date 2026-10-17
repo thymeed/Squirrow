@@ -33,7 +33,7 @@ Your entries live only in this browser on this device. Clearing site data, using
 ```
 npm install
 npm run dev      # local server
-npm test         # Vitest (covers src/core)
+npm test         # Vitest (core logic, UI flows, service worker)
 npm run build    # typecheck + production build into dist/
 npm run format   # Prettier; CI runs format:check
 ```
