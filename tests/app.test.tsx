@@ -102,6 +102,19 @@ describe('update prompt', () => {
     expect(text()).not.toContain('Update available')
   })
 
+  it('checks for updates once, not on every render', async () => {
+    const sw = fakeServiceWorker(null)
+    const reg = await sw.ready
+    const update = vi.fn(async () => {})
+    Object.assign(reg, { update })
+    await remount()
+    await settle()
+    await addProject('P')
+    type(host.querySelector<HTMLInputElement>('input[type="search"], input[placeholder*="earch"]')!, 'abc')
+    await settle()
+    expect(update).toHaveBeenCalledOnce()
+  })
+
   it('offers an update whose worker is still installing, once it finishes', async () => {
     const worker = Object.assign(new EventTarget(), { state: 'installing', postMessage: vi.fn() })
     const sw = fakeServiceWorker(null)
