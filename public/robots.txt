@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://context-keeper.thymeed.workers.dev/sitemap.xml
+Sitemap: https://squirrow.thymeed.workers.dev/sitemap.xml

@@ -1,4 +1,4 @@
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+import { deleteDB, openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import type { Entry, Id, Project, Snapshot } from './types'
 
 export interface Repository {
@@ -15,12 +15,47 @@ interface Schema extends DBSchema {
   entries: { key: string; value: Entry; indexes: { byProject: string } }
 }
 
-export function createIndexedDbRepository(name = 'context-keeper'): Repository {
+const DB_NAME = 'squirrow'
+const LEGACY_DB_NAME = 'context-keeper'
+
+async function migrateLegacy(db: IDBPDatabase<Schema>, legacyName: string): Promise<void> {
+  let legacy: IDBPDatabase<Schema>
+  try {
+    legacy = await openDB<Schema>(legacyName, 1, {
+      upgrade(_db, _old, _new, tx) {
+        tx.done.catch(() => {})
+        tx.abort()
+      },
+    })
+  } catch {
+    return
+  }
+  const projects = await legacy.getAll('projects')
+  const entries = await legacy.getAll('entries')
+  legacy.close()
+  const tx = db.transaction(['projects', 'entries'], 'readwrite')
+  await Promise.all([
+    ...projects.map((p) => tx.objectStore('projects').put(p)),
+    ...entries.map((e) => tx.objectStore('entries').put(e)),
+  ])
+  await tx.done
+  void deleteDB(legacyName).catch(() => {})
+}
+
+export function createIndexedDbRepository(
+  name = DB_NAME,
+  legacyName: string | null = name === DB_NAME ? LEGACY_DB_NAME : null,
+): Repository {
+  let created = false
   const dbp: Promise<IDBPDatabase<Schema>> = openDB<Schema>(name, 1, {
     upgrade(db) {
+      created = true
       db.createObjectStore('projects', { keyPath: 'id' })
       db.createObjectStore('entries', { keyPath: 'id' }).createIndex('byProject', 'projectId')
     },
+  }).then(async (db) => {
+    if (created && legacyName) await migrateLegacy(db, legacyName)
+    return db
   })
   return {
     async load() {

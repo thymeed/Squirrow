@@ -1,4 +1,4 @@
-const CACHE = 'context-keeper-v3'
+const CACHE = 'squirrow-v4'
 
 async function precache() {
   const cache = await caches.open(CACHE)

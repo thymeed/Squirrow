@@ -27,7 +27,7 @@ function Welcome({ hasProject }: { hasProject: boolean }) {
       <div className="mascot" aria-hidden="true">
         🧠
       </div>
-      <h2>{hasProject ? 'Nothing saved here yet' : 'Welcome to Context Keeper'}</h2>
+      <h2>{hasProject ? 'Nothing saved here yet' : 'Welcome to Squirrow'}</h2>
       <p>Save what your AI should remember, then paste it into any chat with one click.</p>
       <ol>
         <li className={hasProject ? 'done' : ''}>Create a project, one per thing you are building.</li>
@@ -133,7 +133,7 @@ export function App() {
     <div className="app">
       <aside>
         <h1>
-          <span aria-hidden="true">🧠</span> Context Keeper
+          <span aria-hidden="true">🧠</span> Squirrow
         </h1>
         <p className="tag">Local-first memory for your AI chats. Nothing leaves this browser.</p>
         <ul className="projects">
@@ -165,10 +165,10 @@ export function App() {
           </button>
         )}
         <div className="io">
-          <button onClick={() => download('context-keeper.json', exportJson(data), 'application/json')}>
+          <button onClick={() => download('squirrow.json', exportJson(data), 'application/json')}>
             ⬇ Export JSON
           </button>
-          <button onClick={() => download('context-keeper.md', exportMarkdown(data), 'text/markdown')}>
+          <button onClick={() => download('squirrow.md', exportMarkdown(data), 'text/markdown')}>
             ⬇ Export Markdown
           </button>
           <button onClick={() => importRef.current?.click()}>⬆ Import JSON</button>

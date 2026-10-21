@@ -67,7 +67,7 @@ describe('portability', () => {
   })
   it('rejects bad input with a readable error', () => {
     expect(() => parseSnapshot('nope')).toThrow('valid JSON')
-    expect(() => parseSnapshot('{"version":2}')).toThrow('Not a Context Keeper')
+    expect(() => parseSnapshot('{"version":2}')).toThrow('Not a Squirrow')
     expect(() =>
       parseSnapshot(
         JSON.stringify({
@@ -121,5 +121,25 @@ describe('repository', () => {
     const s = snapshot([entry('new')])
     await repo.replaceAll(s)
     expect(await repo.load()).toMatchObject({ entries: s.entries })
+  })
+  it('copies legacy data into the new database without overwriting later changes', async () => {
+    const legacy = `legacy-${newId()}`
+    const e = entry('Kept')
+    const old = createIndexedDbRepository(legacy, null)
+    await old.putProject(project)
+    await old.putEntry(e)
+    const name = `t-${newId()}`
+    const migrated = createIndexedDbRepository(name, legacy)
+    expect(await migrated.load()).toMatchObject({ projects: [project], entries: [e] })
+    await migrated.deleteProject(project.id)
+    const reopened = createIndexedDbRepository(name, legacy)
+    expect(await reopened.load()).toMatchObject({ projects: [], entries: [] })
+  })
+  it('leaves an empty install alone when no legacy database exists', async () => {
+    const legacy = `legacy-${newId()}`
+    const repo = createIndexedDbRepository(`t-${newId()}`, legacy)
+    expect(await repo.load()).toMatchObject({ projects: [], entries: [] })
+    const names = (await indexedDB.databases()).map((d) => d.name)
+    expect(names).not.toContain(legacy)
   })
 })

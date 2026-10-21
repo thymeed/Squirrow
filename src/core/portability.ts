@@ -29,7 +29,7 @@ export function parseSnapshot(text: string): Snapshot {
     throw new Error('File is not valid JSON')
   }
   if (!isObj(raw) || raw.version !== 1 || !Array.isArray(raw.projects) || !Array.isArray(raw.entries)) {
-    throw new Error('Not a Context Keeper export (expected version 1)')
+    throw new Error('Not a Squirrow export (expected version 1)')
   }
   const projects = raw.projects.map((p): Project => {
     if (!isObj(p) || typeof p.id !== 'string' || typeof p.name !== 'string')
