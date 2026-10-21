@@ -157,13 +157,12 @@ describe('selectContext', () => {
     expect(result.tokens).toBeGreaterThan(10)
   })
   it('ranks kinds decision, preference, fact, file-note, snippet when scores and times tie', () => {
-    const tied = [
-      entry('Snippet', 'const a = 1', 'snippet', 1),
-      entry('File note', 'a note', 'file-note', 1),
-      entry('Fact', 'a fact', 'fact', 1),
-      entry('Preference', 'a pref', 'preference', 1),
-      entry('Decision', 'a choice', 'decision', 1),
-    ]
+    const snippet = entry('Snippet', 'const a = 1', 'snippet', 1)
+    const fileNote = entry('File note', 'a note', 'file-note', 1)
+    const fact = entry('Fact', 'a fact', 'fact', 1)
+    const preference = entry('Preference', 'a pref', 'preference', 1)
+    const decision = entry('Decision', 'a choice', 'decision', 1)
+    const tied = [snippet, fileNote, fact, preference, decision]
     expect(titles(pick(tied, '', 100000).included)).toEqual([
       'Decision',
       'Preference',
@@ -171,7 +170,7 @@ describe('selectContext', () => {
       'File note',
       'Snippet',
     ])
-    const topTwo = estimateTokens(buildContext(project, [tied[4], tied[3]]))
+    const topTwo = estimateTokens(buildContext(project, [decision, preference]))
     expect(titles(pick(tied, '', topTwo).included)).toEqual(['Decision', 'Preference'])
   })
   it('keeps a pinned entry over a better match when only one fits', () => {
