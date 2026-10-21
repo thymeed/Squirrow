@@ -25,7 +25,7 @@ function Welcome({ hasProject }: { hasProject: boolean }) {
   return (
     <div className="welcome">
       <div className="mascot" aria-hidden="true">
-        🧠
+        🐿️
       </div>
       <h2>{hasProject ? 'Nothing saved here yet' : 'Welcome to Squirrow'}</h2>
       <p>Save what your AI should remember, then paste it into any chat with one click.</p>
@@ -133,7 +133,7 @@ export function App() {
     <div className="app">
       <aside>
         <h1>
-          <span aria-hidden="true">🧠</span> Squirrow
+          <span aria-hidden="true">🐿️</span> Squirrow
         </h1>
         <p className="tag">Local-first memory for your AI chats. Nothing leaves this browser.</p>
         <ul className="projects">
