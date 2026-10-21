@@ -325,6 +325,19 @@ describe('app smoke', () => {
     expect(ticked()).toEqual([expect.stringContaining('Use Postgres')])
   })
 
+  it('lists an entry the user unticked under its own heading, so the counts add up', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    await addEntry('Big notes', 'x'.repeat(4000))
+    await click(button('Auto-pick'))
+    await until(() => text().includes('2 of 2 included'))
+    await tick('Big notes')
+    await click(button('Auto-pick'))
+    await until(() => text().includes('1 of 2 included'))
+    expect(text()).toContain('Left out (you unticked) (1)')
+    expect(host.querySelector('.unticked')!.textContent).toBe('Big notes')
+  })
+
   it('keeps a hand-ticked entry through Auto-pick and warns when ticked entries alone exceed the budget', async () => {
     await addProject('Demo')
     await addEntry('Use Postgres', 'version 16')

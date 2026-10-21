@@ -16,6 +16,7 @@ import { useUpdateReady } from './useUpdateReady'
 
 interface AutoPick {
   selection: Selection
+  unticked: Entry[]
   total: number
   budget: number
 }
@@ -141,10 +142,11 @@ export function App() {
     if (!project || !profile) return
     const budget = budgetTokens(profile.contextTokens, share)
     const pinned = new Set<Id>([...hand].filter(([, ticked]) => ticked).map(([id]) => id))
+    const unticked = projectEntries.filter((e) => hand.get(e.id) === false)
     const candidates = projectEntries.filter((e) => hand.get(e.id) !== false)
     const selection = selectContext(project, candidates, task, budget, pinned)
     setSelected(new Set(selection.included.map((e) => e.id)))
-    setAutoPick({ selection, total: projectEntries.length, budget })
+    setAutoPick({ selection, unticked, total: projectEntries.length, budget })
   }
 
   const copy = async () => {
@@ -340,6 +342,16 @@ export function App() {
                       <h3>Left out ({autoPick.selection.dropped.length})</h3>
                       <ul className="left-out">
                         {autoPick.selection.dropped.map((e) => (
+                          <li key={e.id}>{e.title}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  {autoPick.unticked.length > 0 && (
+                    <>
+                      <h3>Left out (you unticked) ({autoPick.unticked.length})</h3>
+                      <ul className="left-out unticked">
+                        {autoPick.unticked.map((e) => (
                           <li key={e.id}>{e.title}</li>
                         ))}
                       </ul>
