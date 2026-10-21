@@ -1,3 +1,4 @@
+import { openDB } from 'idb'
 import { describe, expect, it } from 'vitest'
 import { buildContext, estimateTokens } from '../src/core/inject'
 import { MAX_IMPORT_CHARS, exportJson, exportMarkdown, parseSnapshot } from '../src/core/portability'
@@ -134,6 +135,16 @@ describe('repository', () => {
     await migrated.deleteProject(project.id)
     const reopened = createIndexedDbRepository(name, legacy)
     expect(await reopened.load()).toMatchObject({ projects: [], entries: [] })
+  })
+  it('starts empty instead of failing when the legacy database cannot be read', async () => {
+    const legacy = `legacy-${newId()}`
+    const broken = await openDB(legacy, 1, {
+      upgrade: (db) => void db.createObjectStore('projects', { keyPath: 'id' }),
+    })
+    broken.close()
+    const repo = createIndexedDbRepository(`t-${newId()}`, legacy)
+    expect(await repo.load()).toMatchObject({ projects: [], entries: [] })
+    expect((await indexedDB.databases()).map((d) => d.name)).toContain(legacy)
   })
   it('leaves an empty install alone when no legacy database exists', async () => {
     const legacy = `legacy-${newId()}`

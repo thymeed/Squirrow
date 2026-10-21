@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Renamed to Squirrow. Data from the old `context-keeper` database on the same address is copied over on first open. If that copy fails, the app starts empty and the old database is kept.
+- A new web address has a separate browser storage area. Before switching, export your data from the old address, then import it at the new one.
+
 ## 1.0.0 (2026-10-17)
 
 First public release.

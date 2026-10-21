@@ -30,15 +30,20 @@ async function migrateLegacy(db: IDBPDatabase<Schema>, legacyName: string): Prom
   } catch {
     return
   }
-  const projects = await legacy.getAll('projects')
-  const entries = await legacy.getAll('entries')
-  legacy.close()
-  const tx = db.transaction(['projects', 'entries'], 'readwrite')
-  await Promise.all([
-    ...projects.map((p) => tx.objectStore('projects').put(p)),
-    ...entries.map((e) => tx.objectStore('entries').put(e)),
-  ])
-  await tx.done
+  try {
+    const projects = await legacy.getAll('projects')
+    const entries = await legacy.getAll('entries')
+    legacy.close()
+    const tx = db.transaction(['projects', 'entries'], 'readwrite')
+    await Promise.all([
+      ...projects.map((p) => tx.objectStore('projects').put(p)),
+      ...entries.map((e) => tx.objectStore('entries').put(e)),
+    ])
+    await tx.done
+  } catch {
+    legacy.close()
+    return
+  }
   void deleteDB(legacyName).catch(() => {})
 }
 
