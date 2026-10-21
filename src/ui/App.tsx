@@ -92,6 +92,15 @@ export function App() {
   const context = project ? buildContext(project, chosen) : ''
 
   useEffect(() => {
+    setSelected(new Set())
+    setHand(new Map())
+  }, [project?.id])
+
+  useEffect(() => {
+    setAutoPick(null)
+  }, [project?.id, projectEntries])
+
+  useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       const typing =
         ev.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ev.target.tagName)
@@ -181,10 +190,6 @@ export function App() {
                 className={p.id === project?.id ? 'on' : ''}
                 onClick={() => {
                   setProjectId(p.id)
-                  setSelected(new Set())
-                  setHand(new Map())
-                  setAutoPick(null)
-                  setAutoPick(null)
                 }}
               >
                 {p.name}

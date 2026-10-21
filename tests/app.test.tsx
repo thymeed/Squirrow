@@ -174,6 +174,21 @@ describe('update prompt', () => {
   })
 })
 
+describe('auto-pick status', () => {
+  it('goes away when a new project opens or an entry changes', async () => {
+    await addProject('First')
+    await addEntry('Alpha')
+    await click(button('Auto-pick'))
+    expect(text()).toContain('included')
+    await addEntry('Beta')
+    await until(() => !text().includes('included'))
+    await click(button('Auto-pick'))
+    expect(text()).toContain('included')
+    await addProject('Second')
+    await until(() => !text().includes('included'))
+  })
+})
+
 describe('app smoke', () => {
   it('shows the welcome guide on first load', () => {
     expect(text()).toContain('Welcome to Squirrow')
