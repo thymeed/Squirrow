@@ -1,6 +1,6 @@
 {
-  "name": "Context Keeper",
-  "short_name": "Context Keeper",
+  "name": "Squirrow",
+  "short_name": "Squirrow",
   "description": "Local-first memory manager for your AI chats. Nothing leaves your browser.",
   "start_url": "/",
   "scope": "/",

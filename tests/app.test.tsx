@@ -77,7 +77,7 @@ afterEach(async () => {
 
 describe('app smoke', () => {
   it('shows the welcome guide on first load', () => {
-    expect(text()).toContain('Welcome to Context Keeper')
+    expect(text()).toContain('Welcome to Squirrow')
   })
 
   it('creates a project and an entry', async () => {
