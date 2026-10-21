@@ -237,6 +237,28 @@ describe('app smoke', () => {
     expect(text()).not.toContain('Copied ~')
   })
 
+  it('auto-picks what fits the small model, lists the rest as left out, and clears that list on a manual tick', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    await addEntry('Big notes', 'x'.repeat(4000))
+    const model = host.querySelector<HTMLSelectElement>('.budget select')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(model, 'small')
+      model.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await click(button('Auto-pick'))
+    await until(() => text().includes('Left out (1)'))
+    expect(host.querySelector('.left-out')!.textContent).toBe('Big notes')
+    expect(text()).toContain('1 of 2 included')
+    const ticked = () =>
+      [...host.querySelectorAll<HTMLLabelElement>('.entries label')]
+        .filter((l) => l.querySelector('input')!.checked)
+        .map((l) => l.textContent)
+    expect(ticked()).toEqual([expect.stringContaining('Use Postgres')])
+    await tick('Big notes')
+    expect(text()).not.toContain('Left out')
+  })
+
   it('shows a readable error when an import file is invalid', async () => {
     const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
     Object.defineProperty(input, 'files', { value: [new File(['nope'], 'bad.json')] })

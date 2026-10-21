@@ -1,10 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { buildContext, estimateTokens } from '../core/inject'
+import { buildContext, estimateTokens, selectContext, type Selection } from '../core/inject'
 import { exportJson, exportMarkdown, parseSnapshot } from '../core/portability'
 import { searchEntries } from '../core/search'
 import { useStore } from '../core/store'
-import { ENTRY_KINDS, type Entry, type EntryKind, type Id } from '../core/types'
+import {
+  BUDGET_SHARES,
+  ENTRY_KINDS,
+  MODEL_PROFILES,
+  budgetTokens,
+  type Entry,
+  type EntryKind,
+  type Id,
+} from '../core/types'
 import { useUpdateReady } from './useUpdateReady'
+
+interface AutoPick {
+  selection: Selection
+  total: number
+  budget: number
+}
 
 const KIND_ICON: Record<EntryKind, string> = {
   fact: '💡',
@@ -56,6 +70,10 @@ export function App() {
   const [projectId, setProjectId] = useState<Id | null>(null)
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Set<Id>>(new Set())
+  const [modelId, setModelId] = useState(MODEL_PROFILES[0]?.id ?? '')
+  const [share, setShare] = useState(0.1)
+  const [task, setTask] = useState('')
+  const [autoPick, setAutoPick] = useState<AutoPick | null>(null)
   const [editing, setEditing] = useState<Partial<Entry> | null>(null)
   const [notice, setNotice] = useState('')
   const applyUpdate = useUpdateReady()
@@ -90,16 +108,27 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [project])
 
-  const toggle = (id: Id) =>
+  const toggle = (id: Id) => {
+    setAutoPick(null)
     setSelected((s) => {
       const next = new Set(s)
       if (!next.delete(id)) next.add(id)
       return next
     })
+  }
 
   const addProject = async () => {
     const name = prompt('Project name')?.trim()
     if (name) setProjectId(await store.addProject(name))
+  }
+
+  const runAutoPick = () => {
+    const profile = MODEL_PROFILES.find((p) => p.id === modelId)
+    if (!project || !profile) return
+    const budget = budgetTokens(profile.contextTokens, share)
+    const selection = selectContext(project, projectEntries, task, budget, selected)
+    setSelected(new Set(selection.included.map((e) => e.id)))
+    setAutoPick({ selection, total: projectEntries.length, budget })
   }
 
   const copy = async () => {
@@ -146,6 +175,7 @@ export function App() {
                 onClick={() => {
                   setProjectId(p.id)
                   setSelected(new Set())
+                  setAutoPick(null)
                 }}
               >
                 {p.name}
@@ -233,12 +263,74 @@ export function App() {
               <p>
                 {chosen.length} selected · ~{estimateTokens(context)} tokens
               </p>
+              <div className="budget">
+                <label>
+                  Model
+                  <select value={modelId} onChange={(e) => setModelId(e.target.value)}>
+                    {MODEL_PROFILES.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Share of window
+                  <select value={share} onChange={(e) => setShare(Number(e.target.value))}>
+                    {BUDGET_SHARES.map((s) => (
+                      <option key={s} value={s}>
+                        {Math.round(s * 100)}%
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Task
+                  <input
+                    type="text"
+                    value={task}
+                    placeholder="What are you working on?"
+                    onChange={(e) => setTask(e.target.value)}
+                  />
+                </label>
+                <button onClick={runAutoPick}>Auto-pick</button>
+              </div>
+              {autoPick && (
+                <div className="budget-result">
+                  <p role="status">
+                    {autoPick.selection.included.length} of {autoPick.total} included, ~
+                    {autoPick.selection.tokens} of {autoPick.budget} tokens
+                  </p>
+                  {autoPick.selection.overBudget && (
+                    <p role="alert" className="notice">
+                      Pinned entries alone are over this budget. Untick some, or pick a larger model.
+                    </p>
+                  )}
+                  {autoPick.selection.dropped.length > 0 && (
+                    <>
+                      <h3>Left out ({autoPick.selection.dropped.length})</h3>
+                      <ul className="left-out">
+                        {autoPick.selection.dropped.map((e) => (
+                          <li key={e.id}>{e.title}</li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              )}
               <pre>{chosen.length ? context : 'Tick entries above to build a paste-ready block.'}</pre>
               <div className="row">
                 <button className="primary" disabled={!chosen.length} onClick={copy}>
                   📋 Copy to clipboard
                 </button>
-                <button onClick={() => setSelected(new Set(visible.map((e) => e.id)))}>Select all</button>
+                <button
+                  onClick={() => {
+                    setAutoPick(null)
+                    setSelected(new Set(visible.map((e) => e.id)))
+                  }}
+                >
+                  Select all
+                </button>
               </div>
             </section>
           </>
