@@ -1,6 +1,6 @@
 import { openDB } from 'idb'
 import { describe, expect, it } from 'vitest'
-import { buildContext, estimateTokens } from '../src/core/inject'
+import { buildContext, estimateTokens, selectContext } from '../src/core/inject'
 import { MAX_IMPORT_CHARS, exportJson, exportMarkdown, parseSnapshot } from '../src/core/portability'
 import { createIndexedDbRepository } from '../src/core/repository'
 import { scoreEntries, searchEntries } from '../src/core/search'
@@ -81,12 +81,78 @@ describe('inject', () => {
     expect(text).toContain('### one ``` two\n```\nx\n```')
   })
   it('keeps every line of a multi-line body inside its list item', () => {
-    const text = buildContext(project, [entry('Notes', 'line one\n## not a section'), entry('Next')])
+    const text = buildContext(project, [
+      entry('Notes', 'line one\n## not a section'),
+      entry('Next', '', 'fact', 2),
+    ])
     expect(text).toContain('- **Notes**: line one\n  ## not a section\n- **Next**')
     expect(exportMarkdown(snapshot([entry('Notes', 'a\n# b')]))).toContain('**Notes**: a\n  # b')
   })
   it('estimates tokens at 4 chars each, rounded up', () => {
     expect(estimateTokens('abcde')).toBe(2)
+  })
+  it('lists each kind oldest first, so the same entries give the same text in any order', () => {
+    const older = entry('Older', 'a', 'fact', 1)
+    const newer = entry('Newer', 'b', 'fact', 9)
+    const tie = [entry('Same one', '', 'fact', 5), entry('Same two', '', 'fact', 5)]
+    const all = [newer, older, ...tie]
+    expect(buildContext(project, all)).toBe(buildContext(project, [...all].reverse()))
+    const text = buildContext(project, all)
+    expect(text.indexOf('**Older**')).toBeLessThan(text.indexOf('**Newer**'))
+  })
+})
+
+describe('selectContext', () => {
+  const hit = entry('Postgres setup', 'v16', 'fact', 10)
+  const bodyHit = entry('Storage', 'postgres here', 'fact', 5)
+  const pref = entry('Tabs', '', 'preference', 1)
+  const newest = entry('Colors', '', 'fact', 50)
+  const all = [newest, pref, bodyHit, hit]
+  const pick = (entries: Entry[], query: string, budget: number, pinned: Entry[] = []) =>
+    selectContext(project, entries, query, budget, new Set(pinned.map((e) => e.id)))
+  const titles = (list: Entry[]) => list.map((e) => e.title)
+
+  it('keeps the highest-ranked entries when the budget forces drops', () => {
+    const budget = estimateTokens(buildContext(project, [hit, bodyHit]))
+    const result = pick(all, 'postgres', budget)
+    expect(titles(result.included)).toEqual(['Postgres setup', 'Storage'])
+    expect(titles(result.dropped)).toEqual(['Tabs', 'Colors'])
+    expect(result.overBudget).toBe(false)
+    expect(result.tokens).toBe(budget)
+  })
+  it('keeps the title match when only one entry fits', () => {
+    const budget = estimateTokens(buildContext(project, [hit]))
+    expect(titles(pick(all, 'postgres', budget).included)).toEqual(['Postgres setup'])
+  })
+  it('ranks a preference above a newer fact when nothing matches', () => {
+    const budget = estimateTokens(buildContext(project, [pref]))
+    expect(titles(pick(all, '', budget).included)).toEqual(['Tabs'])
+  })
+  it('never exceeds the budget unless overBudget is set, and measures the real text', () => {
+    for (const budget of [40, 80, 200, 400, 2000]) {
+      const result = pick(all, 'postgres', budget)
+      expect(result.overBudget || result.tokens <= budget).toBe(true)
+      expect(result.tokens).toBe(estimateTokens(buildContext(project, result.included)))
+    }
+  })
+  it('always includes pinned entries, even when they rank last', () => {
+    const budget = estimateTokens(buildContext(project, [newest]))
+    const result = pick(all, 'postgres', budget, [newest])
+    expect(titles(result.included)).toEqual(['Colors'])
+    expect(result.overBudget).toBe(false)
+  })
+  it('sets overBudget and drops everything else when pinned entries alone do not fit', () => {
+    const result = pick(all, 'postgres', 10, [hit])
+    expect(titles(result.included)).toEqual(['Postgres setup'])
+    expect(titles(result.dropped)).toEqual(['Storage', 'Tabs', 'Colors'])
+    expect(result.overBudget).toBe(true)
+    expect(result.tokens).toBeGreaterThan(10)
+  })
+  it('gives the same selection for the same entries in any input order', () => {
+    const forward = pick(all, 'postgres', 60)
+    const backward = pick([...all].reverse(), 'postgres', 60)
+    expect(titles(backward.included)).toEqual(titles(forward.included))
+    expect(titles(backward.dropped)).toEqual(titles(forward.dropped))
   })
 })
 
