@@ -368,7 +368,11 @@ export function App() {
                   onClick={() => {
                     setAutoPick(null)
                     setSelected(new Set(visible.map((e) => e.id)))
-                    setHand(new Map(visible.map((e): [Id, boolean] => [e.id, true])))
+                    setHand((h) => {
+                      const next = new Map(h)
+                      for (const e of visible) next.delete(e.id)
+                      return next
+                    })
                   }}
                 >
                   Select all

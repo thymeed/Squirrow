@@ -73,6 +73,7 @@ const choose = (select: HTMLSelectElement, value: string) =>
   })
 
 const modelSelect = () => host.querySelectorAll<HTMLSelectElement>('.budget select')[0]!
+const searchInput = () => host.querySelector<HTMLInputElement>('input[placeholder="Search entries ( / )"]')!
 const taskInput = () => host.querySelector<HTMLInputElement>('input[placeholder="What are you working on?"]')!
 
 beforeEach(async () => {
@@ -350,6 +351,33 @@ describe('app smoke', () => {
     await until(() => !!host.querySelector('[role="alert"]'))
     expect(ticked()).toEqual([expect.stringContaining('Big notes')])
     expect(text()).toContain('1 of 2 included')
+  })
+
+  it('does not pin what Select all ticked, so a smaller model can shrink the Auto-pick', async () => {
+    await addProject('Demo')
+    for (let i = 1; i <= 10; i++) await addEntry(`Note ${i}`, 'x'.repeat(400))
+    await click(button('Select all'))
+    await until(() => ticked().length === 10)
+    await choose(modelSelect(), 'small')
+    await click(button('Auto-pick'))
+    await until(() => /\d+ of 10 included/.test(text()))
+    expect(ticked().length).toBeLessThan(10)
+    expect(host.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  it('remembers an entry the user unticked while a filter hid it, through a later Select all', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    await addEntry('Big notes', 'x'.repeat(4000))
+    await click(button('Auto-pick'))
+    await until(() => text().includes('2 of 2 included'))
+    await tick('Big notes')
+    await act(async () => type(searchInput(), 'postgres'))
+    await click(button('Select all'))
+    await act(async () => type(searchInput(), ''))
+    await click(button('Auto-pick'))
+    await until(() => text().includes('1 of 2 included'))
+    expect(ticked()).toEqual([expect.stringContaining('Use Postgres')])
   })
 
   it('clears the included count when the model changes', async () => {
