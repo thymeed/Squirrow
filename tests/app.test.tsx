@@ -74,6 +74,7 @@ const choose = (select: HTMLSelectElement, value: string) =>
 
 const modelSelect = () => host.querySelectorAll<HTMLSelectElement>('.budget select')[0]!
 const searchInput = () => host.querySelector<HTMLInputElement>('input[placeholder="Search entries ( / )"]')!
+const customInput = () => host.querySelector<HTMLInputElement>('.budget input[type="number"]')!
 const taskInput = () => host.querySelector<HTMLInputElement>('input[placeholder="What are you working on?"]')!
 
 beforeEach(async () => {
@@ -378,6 +379,29 @@ describe('app smoke', () => {
     await click(button('Auto-pick'))
     await until(() => text().includes('1 of 2 included'))
     expect(ticked()).toEqual([expect.stringContaining('Use Postgres')])
+  })
+
+  it('budgets from a custom context window and shows it in the status', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    await choose(modelSelect(), 'custom')
+    expect(customInput().value).toBe('32000')
+    await act(async () => type(customInput(), '2000'))
+    await click(button('Auto-pick'))
+    await until(() => text().includes('of 200 tokens'))
+  })
+
+  it('disables Auto-pick when the custom window is not a whole number of at least 1000', async () => {
+    await addProject('Demo')
+    await choose(modelSelect(), 'custom')
+    await act(async () => type(customInput(), '500'))
+    expect(customInput().getAttribute('aria-invalid')).toBe('true')
+    expect(button('Auto-pick').disabled).toBe(true)
+    await act(async () => type(customInput(), '1500.5'))
+    expect(button('Auto-pick').disabled).toBe(true)
+    await act(async () => type(customInput(), '1000'))
+    expect(customInput().getAttribute('aria-invalid')).toBe('false')
+    expect(button('Auto-pick').disabled).toBe(false)
   })
 
   it('clears the included count when the model changes', async () => {

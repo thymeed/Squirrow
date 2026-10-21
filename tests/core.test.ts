@@ -65,7 +65,7 @@ describe('model budget', () => {
     const caps = MODEL_PROFILES.map((p) => budgetTokens(p.contextTokens, 0.1))
     expect(new Set(caps).size).toBe(MODEL_PROFILES.length)
   })
-  it('ships the real context window for each model', () => {
+  it('ships the default window for each model family', () => {
     expect(Object.fromEntries(MODEL_PROFILES.map((p) => [p.id, p.contextTokens]))).toEqual({
       claude: 200000,
       gpt: 128000,

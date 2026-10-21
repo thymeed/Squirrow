@@ -5,9 +5,11 @@ import { searchEntries } from '../core/search'
 import { useStore } from '../core/store'
 import {
   BUDGET_SHARES,
+  CUSTOM_MODEL_ID,
   ENTRY_KINDS,
   MODEL_PROFILES,
   budgetTokens,
+  parseContextWindow,
   type Entry,
   type EntryKind,
   type Id,
@@ -74,6 +76,7 @@ export function App() {
   // true: the user ticked it by hand. false: the user unticked it. Absent: Auto-pick decides.
   const [hand, setHand] = useState<Map<Id, boolean>>(new Map())
   const [modelId, setModelId] = useState(MODEL_PROFILES[0]?.id ?? '')
+  const [customWindow, setCustomWindow] = useState('32000')
   const [share, setShare] = useState(0.1)
   const [task, setTask] = useState('')
   const [autoPick, setAutoPick] = useState<AutoPick | null>(null)
@@ -137,10 +140,14 @@ export function App() {
     if (name) setProjectId(await store.addProject(name))
   }
 
+  const contextTokens =
+    modelId === CUSTOM_MODEL_ID
+      ? parseContextWindow(customWindow)
+      : (MODEL_PROFILES.find((p) => p.id === modelId)?.contextTokens ?? null)
+  const budget = contextTokens === null ? null : budgetTokens(contextTokens, share)
+
   const runAutoPick = () => {
-    const profile = MODEL_PROFILES.find((p) => p.id === modelId)
-    if (!project || !profile) return
-    const budget = budgetTokens(profile.contextTokens, share)
+    if (!project || budget === null) return
     const pinned = new Set<Id>([...hand].filter(([, ticked]) => ticked).map(([id]) => id))
     const unticked = projectEntries.filter((e) => hand.get(e.id) === false)
     const candidates = projectEntries.filter((e) => hand.get(e.id) !== false)
@@ -294,8 +301,25 @@ export function App() {
                         {p.label}
                       </option>
                     ))}
+                    <option value={CUSTOM_MODEL_ID}>Custom</option>
                   </select>
                 </label>
+                {modelId === CUSTOM_MODEL_ID && (
+                  <label>
+                    Context window (tokens)
+                    <input
+                      type="number"
+                      min={1000}
+                      step={1}
+                      value={customWindow}
+                      aria-invalid={contextTokens === null}
+                      onChange={(e) => {
+                        setCustomWindow(e.target.value)
+                        setAutoPick(null)
+                      }}
+                    />
+                  </label>
+                )}
                 <label>
                   Share of window
                   <select
@@ -324,7 +348,9 @@ export function App() {
                     }}
                   />
                 </label>
-                <button onClick={runAutoPick}>Auto-pick</button>
+                <button disabled={budget === null} onClick={runAutoPick}>
+                  Auto-pick
+                </button>
               </div>
               {autoPick && (
                 <div className="budget-result">
