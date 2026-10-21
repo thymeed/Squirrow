@@ -54,6 +54,14 @@ describe('model budget', () => {
     const caps = MODEL_PROFILES.map((p) => budgetTokens(p.contextTokens, 0.1))
     expect(new Set(caps).size).toBe(MODEL_PROFILES.length)
   })
+  it('ships the real context window for each model', () => {
+    expect(Object.fromEntries(MODEL_PROFILES.map((p) => [p.id, p.contextTokens]))).toEqual({
+      claude: 200000,
+      gpt: 128000,
+      gemini: 1000000,
+      small: 8000,
+    })
+  })
   it('gives the small model 800 tokens at a 10% share', () => {
     expect(budgetTokens(8000, 0.1)).toBe(800)
   })
@@ -147,6 +155,33 @@ describe('selectContext', () => {
     expect(titles(result.dropped)).toEqual(['Storage', 'Tabs', 'Colors'])
     expect(result.overBudget).toBe(true)
     expect(result.tokens).toBeGreaterThan(10)
+  })
+  it('ranks kinds decision, preference, fact, file-note, snippet when scores and times tie', () => {
+    const tied = [
+      entry('Snippet', 'const a = 1', 'snippet', 1),
+      entry('File note', 'a note', 'file-note', 1),
+      entry('Fact', 'a fact', 'fact', 1),
+      entry('Preference', 'a pref', 'preference', 1),
+      entry('Decision', 'a choice', 'decision', 1),
+    ]
+    expect(titles(pick(tied, '', 100000).included)).toEqual([
+      'Decision',
+      'Preference',
+      'Fact',
+      'File note',
+      'Snippet',
+    ])
+    const topTwo = estimateTokens(buildContext(project, [tied[4], tied[3]]))
+    expect(titles(pick(tied, '', topTwo).included)).toEqual(['Decision', 'Preference'])
+  })
+  it('keeps a pinned entry over a better match when only one fits', () => {
+    const budget = Math.max(
+      estimateTokens(buildContext(project, [hit])),
+      estimateTokens(buildContext(project, [newest])),
+    )
+    const result = pick(all, 'postgres', budget, [newest])
+    expect(titles(result.included)).toEqual(['Colors'])
+    expect(result.overBudget).toBe(false)
   })
   it('gives the same selection for the same entries in any input order', () => {
     const forward = pick(all, 'postgres', 60)
