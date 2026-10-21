@@ -60,6 +60,21 @@ const tick = (title: string) => {
   return click(label!.querySelector('input')!)
 }
 
+const ticked = () =>
+  [...host.querySelectorAll<HTMLLabelElement>('.entries label')]
+    .filter((l) => l.querySelector('input')!.checked)
+    .map((l) => l.textContent)
+
+/** Picks an option the way a user would, so React sees the change. */
+const choose = (select: HTMLSelectElement, value: string) =>
+  act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, value)
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+
+const modelSelect = () => host.querySelectorAll<HTMLSelectElement>('.budget select')[0]!
+const taskInput = () => host.querySelector<HTMLInputElement>('input[placeholder="What are you working on?"]')!
+
 beforeEach(async () => {
   globalThis.indexedDB = new IDBFactory()
   host = document.createElement('div')
@@ -250,13 +265,72 @@ describe('app smoke', () => {
     await until(() => text().includes('Left out (1)'))
     expect(host.querySelector('.left-out')!.textContent).toBe('Big notes')
     expect(text()).toContain('1 of 2 included')
-    const ticked = () =>
-      [...host.querySelectorAll<HTMLLabelElement>('.entries label')]
-        .filter((l) => l.querySelector('input')!.checked)
-        .map((l) => l.textContent)
     expect(ticked()).toEqual([expect.stringContaining('Use Postgres')])
     await tick('Big notes')
     expect(text()).not.toContain('Left out')
+  })
+
+  it('shrinks an earlier Auto-pick when a smaller model is picked', async () => {
+    await addProject('Demo')
+    for (let i = 1; i <= 10; i++) await addEntry(`Note ${i}`, 'x'.repeat(400))
+    await click(button('Auto-pick'))
+    await until(() => text().includes('10 of 10 included'))
+    await choose(modelSelect(), 'small')
+    await click(button('Auto-pick'))
+    await until(() => text().includes('Left out'))
+    expect(text()).not.toContain('Pinned entries alone are over this budget')
+    expect(ticked().length).toBeLessThan(10)
+    expect(text()).toMatch(/\d+ of 10 included/)
+  })
+
+  it('re-ranks the entries when the task changes', async () => {
+    await addProject('Demo')
+    await addEntry('Postgres setup', 'x'.repeat(2000))
+    await addEntry('Redis cache', 'y'.repeat(2000))
+    await choose(modelSelect(), 'small')
+    await act(async () => type(taskInput(), 'postgres'))
+    await click(button('Auto-pick'))
+    await until(() => text().includes('1 of 2 included'))
+    expect(ticked()).toEqual([expect.stringContaining('Postgres setup')])
+    await act(async () => type(taskInput(), 'redis'))
+    await click(button('Auto-pick'))
+    await until(() => text().includes('1 of 2 included'))
+    expect(ticked()).toEqual([expect.stringContaining('Redis cache')])
+  })
+
+  it('keeps an entry the user unticked after Auto-pick out of the next Auto-pick', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    await addEntry('Big notes', 'x'.repeat(4000))
+    await click(button('Auto-pick'))
+    await until(() => text().includes('2 of 2 included'))
+    await tick('Big notes')
+    await click(button('Auto-pick'))
+    await until(() => text().includes('1 of 2 included'))
+    expect(ticked()).toEqual([expect.stringContaining('Use Postgres')])
+  })
+
+  it('keeps a hand-ticked entry through Auto-pick and warns when ticked entries alone exceed the budget', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    await addEntry('Big notes', 'x'.repeat(4000))
+    await tick('Big notes')
+    await click(button('Auto-pick'))
+    await until(() => text().includes('2 of 2 included'))
+    await choose(modelSelect(), 'small')
+    await click(button('Auto-pick'))
+    await until(() => !!host.querySelector('[role="alert"]'))
+    expect(ticked()).toEqual([expect.stringContaining('Big notes')])
+    expect(text()).toContain('1 of 2 included')
+  })
+
+  it('clears the included count when the model changes', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    await click(button('Auto-pick'))
+    await until(() => text().includes('1 of 1 included'))
+    await choose(modelSelect(), 'gpt')
+    expect(text()).not.toContain('of 1 included')
   })
 
   it('shows a readable error when an import file is invalid', async () => {
