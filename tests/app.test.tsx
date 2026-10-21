@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../src/ui/App'
+import { useUpdateReady } from '../src/ui/useUpdateReady'
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
@@ -73,6 +74,89 @@ afterEach(async () => {
   host.remove()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+})
+
+describe('update prompt', () => {
+  const remount = async () => {
+    await act(async () => root.unmount())
+    root = createRoot(host)
+    await act(async () => root.render(<App />))
+    await until(() => !text().includes('Loading'))
+  }
+  const fakeServiceWorker = (waiting: { postMessage: () => void; state: string } | null) => {
+    const sw = Object.assign(new EventTarget(), {
+      controller: {},
+      ready: Promise.resolve(
+        Object.assign(new EventTarget(), { waiting, installing: null, update: async () => {} }),
+      ),
+    })
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: sw })
+    return sw
+  }
+  afterEach(() => Reflect.deleteProperty(navigator, 'serviceWorker'))
+
+  it('shows nothing when no update is waiting', async () => {
+    fakeServiceWorker(null)
+    await remount()
+    await settle()
+    expect(text()).not.toContain('Update available')
+  })
+
+  it('checks for updates once, not on every render', async () => {
+    const sw = fakeServiceWorker(null)
+    const reg = await sw.ready
+    const update = vi.fn(async () => {})
+    Object.assign(reg, { update })
+    await remount()
+    await settle()
+    await addProject('P')
+    type(host.querySelector<HTMLInputElement>('input[type="search"], input[placeholder*="earch"]')!, 'abc')
+    await settle()
+    expect(update).toHaveBeenCalledOnce()
+  })
+
+  it('offers an update whose worker is still installing, once it finishes', async () => {
+    const worker = Object.assign(new EventTarget(), { state: 'installing', postMessage: vi.fn() })
+    const sw = fakeServiceWorker(null)
+    const reg = await sw.ready
+    Object.assign(reg, { installing: worker })
+    await remount()
+    await settle()
+    expect(text()).not.toContain('Update available')
+    worker.state = 'installed'
+    worker.dispatchEvent(new Event('statechange'))
+    await until(() => text().includes('Update available'))
+  })
+
+  it('reloads every tab when a new worker takes over, but not on a first install', async () => {
+    function Probe({ reload }: { reload: () => void }) {
+      useUpdateReady(reload)
+      return null
+    }
+    const mount = async (controller: object | null) => {
+      const sw = Object.assign(new EventTarget(), { controller, ready: new Promise(() => {}) })
+      Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: sw })
+      const reload = vi.fn()
+      const el = document.createElement('div')
+      const r = createRoot(el)
+      await act(async () => r.render(<Probe reload={reload} />))
+      sw.dispatchEvent(new Event('controllerchange'))
+      await act(async () => r.unmount())
+      return reload
+    }
+    expect(await mount({})).toHaveBeenCalledOnce()
+    expect(await mount(null)).not.toHaveBeenCalled()
+  })
+
+  it('offers a waiting update and asks the worker to take over only after a click', async () => {
+    const postMessage = vi.fn()
+    fakeServiceWorker({ postMessage, state: 'installed' })
+    await remount()
+    await until(() => text().includes('Update available'))
+    expect(postMessage).not.toHaveBeenCalled()
+    await click(button('Reload to update'))
+    expect(postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' })
+  })
 })
 
 describe('app smoke', () => {

@@ -4,6 +4,7 @@ import { exportJson, exportMarkdown, parseSnapshot } from '../core/portability'
 import { searchEntries } from '../core/search'
 import { useStore } from '../core/store'
 import { ENTRY_KINDS, type Entry, type EntryKind, type Id } from '../core/types'
+import { useUpdateReady } from './useUpdateReady'
 
 const KIND_ICON: Record<EntryKind, string> = {
   fact: '💡',
@@ -57,6 +58,7 @@ export function App() {
   const [selected, setSelected] = useState<Set<Id>>(new Set())
   const [editing, setEditing] = useState<Partial<Entry> | null>(null)
   const [notice, setNotice] = useState('')
+  const applyUpdate = useUpdateReady()
   const searchRef = useRef<HTMLInputElement>(null)
   const importRef = useRef<HTMLInputElement>(null)
 
@@ -240,6 +242,11 @@ export function App() {
               </div>
             </section>
           </>
+        )}
+        {applyUpdate && (
+          <p role="status" className="notice update">
+            Update available. <button onClick={applyUpdate}>Reload to update</button>
+          </p>
         )}
         {notice && (
           <p role="status" className="notice" key={notice}>

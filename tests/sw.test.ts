@@ -14,13 +14,15 @@ function loadWorker(
   const put = vi.fn()
   const remove = vi.fn(async (_name: string) => true)
   const claim = vi.fn(async () => {})
+  const skipWaiting = vi.fn()
   const self = {
     location: { origin: 'https://app.test' },
     clients: { claim },
+    skipWaiting,
     addEventListener: (type: string, fn: (event: unknown) => void) => (handlers[type] = fn),
   }
   const caches = {
-    open: async () => ({ put }),
+    open: async () => ({ put, addAll: async () => {} }),
     match: async (req: { url: string } | string) => cached[typeof req === 'string' ? req : req.url],
     keys: async () => cacheNames,
     delete: remove,
@@ -42,7 +44,13 @@ function loadWorker(
     handlers.activate!({ waitUntil: (p: Promise<unknown>) => (done = p) })
     await done
   }
-  return { request, activate, put, remove, claim }
+  async function install() {
+    let done: Promise<unknown> | undefined
+    handlers.install!({ waitUntil: (p: Promise<unknown>) => (done = p) })
+    await done
+  }
+  const message = (data: unknown) => handlers.message!({ data })
+  return { request, activate, install, message, put, remove, claim, skipWaiting }
 }
 
 describe('service worker', () => {
@@ -64,6 +72,16 @@ describe('service worker', () => {
       'https://app.test/assets/a.js': hit,
     })
     expect(await sw.request('/assets/a.js')).toBe(hit)
+  })
+
+  it('waits after installing until the page asks it to take over', async () => {
+    const sw = loadWorker(async () => ({ ...response(200), text: async () => '' }) as Res)
+    await sw.install()
+    expect(sw.skipWaiting).not.toHaveBeenCalled()
+    sw.message({ type: 'SOMETHING_ELSE' })
+    expect(sw.skipWaiting).not.toHaveBeenCalled()
+    sw.message({ type: 'SKIP_WAITING' })
+    expect(sw.skipWaiting).toHaveBeenCalledOnce()
   })
 
   it('deletes old caches and takes over open tabs when it activates', async () => {
