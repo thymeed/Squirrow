@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { buildContext, estimateTokens } from '../src/core/inject'
 import { MAX_IMPORT_CHARS, exportJson, exportMarkdown, parseSnapshot } from '../src/core/portability'
 import { createIndexedDbRepository } from '../src/core/repository'
-import { searchEntries } from '../src/core/search'
+import { scoreEntries, searchEntries } from '../src/core/search'
 import {
   BUDGET_SHARES,
   MODEL_PROFILES,
@@ -35,6 +35,14 @@ describe('search', () => {
   })
   it('returns everything for an empty query', () => {
     expect(searchEntries([a, b], '  ')).toHaveLength(2)
+  })
+  it('scores title hits above body hits and zero for no match', () => {
+    expect(scoreEntries([a, b], 'data').get(a.id)).toBe(3)
+    expect(scoreEntries([a, b], 'postgres').get(a.id)).toBe(1)
+    expect(scoreEntries([a, b], 'postgres zzz').get(a.id)).toBe(0)
+  })
+  it('gives every entry a zero score for an empty query', () => {
+    expect([...scoreEntries([a, b], '  ').values()]).toEqual([0, 0])
   })
 })
 

@@ -1,4 +1,4 @@
-import type { Entry } from './types'
+import type { Entry, Id } from './types'
 
 const tokenize = (s: string) =>
   s
@@ -6,26 +6,31 @@ const tokenize = (s: string) =>
     .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean)
 
-/** Every query term must prefix-match a word in the entry. Title hits weigh 3x body hits. */
+/** Every query term must prefix-match a word in the entry. Title hits weigh 3x body hits. 0 means no match. */
+function scoreEntry(e: Entry, terms: string[]): number {
+  const title = tokenize(e.title)
+  const body = tokenize(e.body)
+  let score = 0
+  for (const t of terms) {
+    const inTitle = title.some((w) => w.startsWith(t))
+    const inBody = body.some((w) => w.startsWith(t))
+    if (!inTitle && !inBody) return 0
+    score += (inTitle ? 3 : 0) + (inBody ? 1 : 0)
+  }
+  return score
+}
+
+export function scoreEntries(entries: Entry[], query: string): Map<Id, number> {
+  const terms = tokenize(query)
+  return new Map(entries.map((e) => [e.id, scoreEntry(e, terms)]))
+}
+
 export function searchEntries(entries: Entry[], query: string): Entry[] {
   const terms = tokenize(query)
   if (terms.length === 0) return entries
-  const scored: { e: Entry; score: number }[] = []
-  for (const e of entries) {
-    const title = tokenize(e.title)
-    const body = tokenize(e.body)
-    let score = 0
-    let all = true
-    for (const t of terms) {
-      const inTitle = title.some((w) => w.startsWith(t))
-      const inBody = body.some((w) => w.startsWith(t))
-      if (!inTitle && !inBody) {
-        all = false
-        break
-      }
-      score += (inTitle ? 3 : 0) + (inBody ? 1 : 0)
-    }
-    if (all) scored.push({ e, score })
-  }
-  return scored.sort((a, b) => b.score - a.score || b.e.updatedAt - a.e.updatedAt).map((s) => s.e)
+  return entries
+    .map((e) => ({ e, score: scoreEntry(e, terms) }))
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score || b.e.updatedAt - a.e.updatedAt)
+    .map((s) => s.e)
 }
