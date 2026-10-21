@@ -1,5 +1,5 @@
 import { afterLabel, fenceBlock, oneLine } from './markdown'
-import { scoreEntries } from './search'
+import { scoreTask } from './search'
 import type { Entry, EntryKind, Id, Project } from './types'
 
 /** Rough heuristic: about 4 characters per token for English text. */
@@ -62,7 +62,7 @@ export function selectContext(
   budget: number,
   pinned: ReadonlySet<Id>,
 ): Selection {
-  const scores = scoreEntries(entries, query)
+  const scores = scoreTask(entries, query)
   const score = (e: Entry) => scores.get(e.id) ?? 0
   const ranked = [...entries].sort(
     (a, b) =>

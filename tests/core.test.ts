@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { buildContext, estimateTokens, selectContext } from '../src/core/inject'
 import { MAX_IMPORT_CHARS, exportJson, exportMarkdown, parseSnapshot } from '../src/core/portability'
 import { createIndexedDbRepository } from '../src/core/repository'
-import { scoreEntries, searchEntries } from '../src/core/search'
+import { scoreTask, searchEntries } from '../src/core/search'
 import {
   BUDGET_SHARES,
   MODEL_PROFILES,
@@ -36,13 +36,24 @@ describe('search', () => {
   it('returns everything for an empty query', () => {
     expect(searchEntries([a, b], '  ')).toHaveLength(2)
   })
-  it('scores title hits above body hits and zero for no match', () => {
-    expect(scoreEntries([a, b], 'data').get(a.id)).toBe(3)
-    expect(scoreEntries([a, b], 'postgres').get(a.id)).toBe(1)
-    expect(scoreEntries([a, b], 'postgres zzz').get(a.id)).toBe(0)
+})
+
+describe('task scoring', () => {
+  const a = entry('Database choice', 'We use Postgres')
+  const b = entry('Style', 'prefers postgres naming and tabs')
+  it('scores a title hit 3 and a body hit 1, and a partial match above zero', () => {
+    expect(scoreTask([a, b], 'data').get(a.id)).toBe(3)
+    expect(scoreTask([a, b], 'postgres').get(a.id)).toBe(1)
+    expect(scoreTask([a, b], 'postgres zzz').get(a.id)).toBe(1)
   })
-  it('gives every entry a zero score for an empty query', () => {
-    expect([...scoreEntries([a, b], '  ').values()]).toEqual([0, 0])
+  it('never counts stopwords or words of one or two letters', () => {
+    expect(scoreTask([a], 'the database')).toEqual(scoreTask([a], 'database'))
+    expect(scoreTask([a], 'us')).toEqual(new Map([[a.id, 0]]))
+    expect([...scoreTask([a, b], 'the and for with set up to of in on a an is are').values()]).toEqual([0, 0])
+  })
+  it('gives every entry a zero score for an empty or all-stopword task', () => {
+    expect([...scoreTask([a, b], '  ').values()]).toEqual([0, 0])
+    expect([...scoreTask([a, b], 'how do i').values()]).toEqual([0, 0])
   })
 })
 
@@ -181,6 +192,18 @@ describe('selectContext', () => {
     const result = pick(all, 'postgres', budget, [newest])
     expect(titles(result.included)).toEqual(['Colors'])
     expect(result.overBudget).toBe(false)
+  })
+  it('ranks by the task words when the task is a whole sentence', () => {
+    const budget = estimateTokens(buildContext(project, [hit]))
+    expect(titles(pick([pref, hit], 'set up postgres for the recipe app', budget).included)).toEqual([
+      'Postgres setup',
+    ])
+  })
+  it('ranks an entry that matches part of the task above one that matches none', () => {
+    const budget = estimateTokens(buildContext(project, [hit]))
+    expect(titles(pick([pref, hit], 'postgres redis cache setup', budget).included)).toEqual([
+      'Postgres setup',
+    ])
   })
   it('gives the same selection for the same entries in any input order', () => {
     const forward = pick(all, 'postgres', 60)
