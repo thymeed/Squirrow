@@ -75,6 +75,43 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
+describe('update prompt', () => {
+  const remount = async () => {
+    await act(async () => root.unmount())
+    root = createRoot(host)
+    await act(async () => root.render(<App />))
+    await until(() => !text().includes('Loading'))
+  }
+  const fakeServiceWorker = (waiting: { postMessage: () => void } | null) =>
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true,
+      value: Object.assign(new EventTarget(), {
+        controller: {},
+        ready: Promise.resolve(
+          Object.assign(new EventTarget(), { waiting, installing: null, update: async () => {} }),
+        ),
+      }),
+    })
+  afterEach(() => Reflect.deleteProperty(navigator, 'serviceWorker'))
+
+  it('shows nothing when no update is waiting', async () => {
+    fakeServiceWorker(null)
+    await remount()
+    await settle()
+    expect(text()).not.toContain('Update available')
+  })
+
+  it('offers a waiting update and asks the worker to take over only after a click', async () => {
+    const postMessage = vi.fn()
+    fakeServiceWorker({ postMessage })
+    await remount()
+    await until(() => text().includes('Update available'))
+    expect(postMessage).not.toHaveBeenCalled()
+    await click(button('Reload to update'))
+    expect(postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' })
+  })
+})
+
 describe('app smoke', () => {
   it('shows the welcome guide on first load', () => {
     expect(text()).toContain('Welcome to Squirrow')
