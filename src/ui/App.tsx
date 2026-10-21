@@ -70,6 +70,8 @@ export function App() {
   const [projectId, setProjectId] = useState<Id | null>(null)
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<Set<Id>>(new Set())
+  // true: the user ticked it by hand. false: the user unticked it. Absent: Auto-pick decides.
+  const [hand, setHand] = useState<Map<Id, boolean>>(new Map())
   const [modelId, setModelId] = useState(MODEL_PROFILES[0]?.id ?? '')
   const [share, setShare] = useState(0.1)
   const [task, setTask] = useState('')
@@ -109,10 +111,13 @@ export function App() {
   }, [project])
 
   const toggle = (id: Id) => {
+    const nowTicked = !selected.has(id)
     setAutoPick(null)
+    setHand((h) => new Map(h).set(id, nowTicked))
     setSelected((s) => {
       const next = new Set(s)
-      if (!next.delete(id)) next.add(id)
+      if (nowTicked) next.add(id)
+      else next.delete(id)
       return next
     })
   }
@@ -126,7 +131,9 @@ export function App() {
     const profile = MODEL_PROFILES.find((p) => p.id === modelId)
     if (!project || !profile) return
     const budget = budgetTokens(profile.contextTokens, share)
-    const selection = selectContext(project, projectEntries, task, budget, selected)
+    const pinned = new Set<Id>([...hand].filter(([, ticked]) => ticked).map(([id]) => id))
+    const candidates = projectEntries.filter((e) => hand.get(e.id) !== false)
+    const selection = selectContext(project, candidates, task, budget, pinned)
     setSelected(new Set(selection.included.map((e) => e.id)))
     setAutoPick({ selection, total: projectEntries.length, budget })
   }
@@ -175,6 +182,8 @@ export function App() {
                 onClick={() => {
                   setProjectId(p.id)
                   setSelected(new Set())
+                  setHand(new Map())
+                  setAutoPick(null)
                   setAutoPick(null)
                 }}
               >
@@ -266,7 +275,13 @@ export function App() {
               <div className="budget">
                 <label>
                   Model
-                  <select value={modelId} onChange={(e) => setModelId(e.target.value)}>
+                  <select
+                    value={modelId}
+                    onChange={(e) => {
+                      setModelId(e.target.value)
+                      setAutoPick(null)
+                    }}
+                  >
                     {MODEL_PROFILES.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.label}
@@ -276,7 +291,13 @@ export function App() {
                 </label>
                 <label>
                   Share of window
-                  <select value={share} onChange={(e) => setShare(Number(e.target.value))}>
+                  <select
+                    value={share}
+                    onChange={(e) => {
+                      setShare(Number(e.target.value))
+                      setAutoPick(null)
+                    }}
+                  >
                     {BUDGET_SHARES.map((s) => (
                       <option key={s} value={s}>
                         {Math.round(s * 100)}%
@@ -290,7 +311,10 @@ export function App() {
                     type="text"
                     value={task}
                     placeholder="What are you working on?"
-                    onChange={(e) => setTask(e.target.value)}
+                    onChange={(e) => {
+                      setTask(e.target.value)
+                      setAutoPick(null)
+                    }}
                   />
                 </label>
                 <button onClick={runAutoPick}>Auto-pick</button>
@@ -327,6 +351,7 @@ export function App() {
                   onClick={() => {
                     setAutoPick(null)
                     setSelected(new Set(visible.map((e) => e.id)))
+                    setHand(new Map(visible.map((e): [Id, boolean] => [e.id, true])))
                   }}
                 >
                   Select all
