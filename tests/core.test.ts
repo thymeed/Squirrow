@@ -4,7 +4,15 @@ import { buildContext, estimateTokens } from '../src/core/inject'
 import { MAX_IMPORT_CHARS, exportJson, exportMarkdown, parseSnapshot } from '../src/core/portability'
 import { createIndexedDbRepository } from '../src/core/repository'
 import { searchEntries } from '../src/core/search'
-import { newId, type Entry, type Project, type Snapshot } from '../src/core/types'
+import {
+  BUDGET_SHARES,
+  MODEL_PROFILES,
+  budgetTokens,
+  newId,
+  type Entry,
+  type Project,
+  type Snapshot,
+} from '../src/core/types'
 
 const project: Project = { id: newId(), name: 'Demo', createdAt: 1 }
 const entry = (title: string, body = '', kind: Entry['kind'] = 'fact', updatedAt = 1): Entry => ({
@@ -27,6 +35,19 @@ describe('search', () => {
   })
   it('returns everything for an empty query', () => {
     expect(searchEntries([a, b], '  ')).toHaveLength(2)
+  })
+})
+
+describe('model budget', () => {
+  it.each(MODEL_PROFILES)('gives $id its own cap for every share', (profile) => {
+    for (const share of BUDGET_SHARES) {
+      expect(budgetTokens(profile.contextTokens, share)).toBe(Math.floor(profile.contextTokens * share))
+    }
+    const caps = MODEL_PROFILES.map((p) => budgetTokens(p.contextTokens, 0.1))
+    expect(new Set(caps).size).toBe(MODEL_PROFILES.length)
+  })
+  it('gives the small model 800 tokens at a 10% share', () => {
+    expect(budgetTokens(8000, 0.1)).toBe(800)
   })
 })
 
