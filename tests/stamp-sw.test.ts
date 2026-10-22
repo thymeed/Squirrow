@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import swSource from '../public/sw.js?raw'
-import { stampServiceWorker, versionOf } from '../scripts/stamp-sw.mjs'
+import { hashableWorker, stampServiceWorker, versionOf } from '../scripts/stamp-sw.mjs'
 
 const file = (path: string, text: string) => ({ path, bytes: new TextEncoder().encode(text) })
 
@@ -19,6 +19,12 @@ describe('service worker version stamp', () => {
     const a = file('index.html', 'one')
     const b = file('assets/app.js', 'two')
     expect(versionOf([a, b])).toBe(versionOf([b, a]))
+  })
+
+  it('hashes the worker code but not its cache name, so a worker-only change gets a new cache', () => {
+    const hash = (source: string) => versionOf([file('sw.js', hashableWorker(source))])
+    expect(hash(stampServiceWorker(swSource, 'one'))).toBe(hash(stampServiceWorker(swSource, 'two')))
+    expect(hash(`${swSource} // changed`)).not.toBe(hash(swSource))
   })
 
   it('changes the version when any file content or name changes', () => {

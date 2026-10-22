@@ -9,6 +9,11 @@ export function stampServiceWorker(source, version) {
   return source.replace(CACHE_LINE, `const CACHE = 'squirrow-${version}'`)
 }
 
+/** The worker's own code without its cache name, so stamping it again leaves its hash unchanged. */
+export function hashableWorker(source) {
+  return source.replace(CACHE_LINE, "const CACHE = ''")
+}
+
 /** A short hash of every shipped file, so the stamp changes exactly when something users download changes. */
 export function versionOf(files) {
   const hash = createHash('sha256')
@@ -35,10 +40,14 @@ export function stampSwPlugin() {
       outDir = config.build.outDir
     },
     closeBundle() {
-      const files = listFiles(outDir).filter((f) => f.path !== 'sw.js')
-      const version = versionOf(files.map((f) => ({ path: f.path, bytes: readFileSync(f.file) })))
       const swPath = join(outDir, 'sw.js')
-      writeFileSync(swPath, stampServiceWorker(readFileSync(swPath, 'utf8'), version))
+      const worker = readFileSync(swPath, 'utf8')
+      const others = listFiles(outDir).filter((f) => f.path !== 'sw.js')
+      const version = versionOf([
+        ...others.map((f) => ({ path: f.path, bytes: readFileSync(f.file) })),
+        { path: 'sw.js', bytes: Buffer.from(hashableWorker(worker)) },
+      ])
+      writeFileSync(swPath, stampServiceWorker(worker, version))
     },
   }
 }
