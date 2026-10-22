@@ -25,6 +25,7 @@ Your entries live only in this browser on this device. Clearing site data, using
 - **Copy for your AI chat:** tick entries, see a token estimate, and copy a paste-ready Markdown block. Snippets are wrapped in code fences.
 - **Auto-pick:** choose a model (or type your own context window), a share of it and a task, and Auto-pick fills that budget with the best entries. Entries matching your task words come first, then decisions, preferences and facts. Entries you tick by hand are kept, entries you untick stay out, and everything left out is listed so nothing disappears silently.
 - **Keyboard first:** `/` to search, `n` for a new entry, `Esc` to close.
+- **Safe updates:** a new version waits until you click Reload, so it never swaps out the app mid-edit. When you do reload, every open Squirrow tab reloads, so finish typing in other tabs first.
 - **Export and import:** JSON round-trips, and Markdown export is available. Import asks before it replaces your data.
 - **Beginner friendly:** an empty-state guide with three steps, and a clear "Title is required" message instead of a silent failure.
 - **Pixel-art scenery** (light and dark) with twinkling stars, shooting stars and hopping robots. The motion switches off when your system asks for reduced motion.
