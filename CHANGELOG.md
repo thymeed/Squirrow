@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Auto-pick chooses the entries that fit a model's context window, ranked by your task. It lists the entries it left out.
+- Every release now triggers the update prompt. The build stamps a hash of the shipped files into the service worker, so a release can no longer forget the manual cache bump.
 - Updates no longer swap the app under an open tab. A new version waits, and an "Update available" notice with a Reload button appears. Nothing reloads until you click it.
 - Renamed to Squirrow. Data from the old `context-keeper` database on the same address is copied over on first open. If that copy fails, the app starts empty and the old database is kept.
 - A new web address has a separate browser storage area. Before switching, export your data from the old address, then import it at the new one.
