@@ -2,7 +2,7 @@
 
 A local-first memory manager for your AI chats. Save facts, decisions, preferences, snippets and file notes per project, then copy the ones you pick into ChatGPT, Claude or any other assistant. No account, no backend. Your data stays in your browser's IndexedDB.
 
-![Squirrow welcome screen with the pixel-art scenery](public/og.png)
+![Squirrow showing a demo project with three entries ticked and the copy panel open, in front of pixel-art scenery](public/og.png)
 
 Live at https://squirrow.thymeed.workers.dev. It is installable and works offline.
 
@@ -23,6 +23,7 @@ Your entries live only in this browser on this device. Clearing site data, using
 - **Projects** with five kinds of entry: fact, decision, preference, snippet and file note. Each kind has its own color and icon, and the entry dialog explains the chosen kind with an example.
 - **Search** matches the start of any word, so `setup` finds "Database setup" but `base` does not. Every search word must match, and title matches rank above body matches. Ties go to the most recently edited entry.
 - **Copy for your AI chat:** tick entries, see a token estimate, and copy a paste-ready Markdown block. Snippets are wrapped in code fences.
+- **Auto-pick:** choose a model (or type your own context window), a share of it and a task, and Auto-pick fills that budget with the best entries. Entries matching your task words come first, then decisions, preferences and facts. Entries you tick by hand are kept, entries you untick stay out, and everything left out is listed so nothing disappears silently.
 - **Keyboard first:** `/` to search, `n` for a new entry, `Esc` to close.
 - **Export and import:** JSON round-trips, and Markdown export is available. Import asks before it replaces your data.
 - **Beginner friendly:** an empty-state guide with three steps, and a clear "Title is required" message instead of a silent failure.
