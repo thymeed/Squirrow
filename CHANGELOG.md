@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 (2026-10-21)
 
 - Auto-pick chooses the entries that fit a model's context window, ranked by your task. It lists the entries it left out.
 - Every release that changes a shipped file now triggers the update prompt. The build stamps a hash of the shipped files, including the service worker's own code, into its cache name, so a release can no longer forget the manual bump.
