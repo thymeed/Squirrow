@@ -1,4 +1,4 @@
-const CACHE = 'squirrow-v5'
+const CACHE = 'squirrow-dev'
 
 async function precache() {
   const cache = await caches.open(CACHE)
