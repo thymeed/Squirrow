@@ -1,6 +1,6 @@
 # Squirrow: agent handoff
 
-Local-first React 19 + TypeScript + Vite app that stores per-project AI context (facts, decisions, preferences, snippets, file notes) in IndexedDB and copies a chosen set as Markdown. No backend. Repo: thymeed/context-keeper (public).
+Local-first React 19 + TypeScript + Vite app that stores per-project AI context (facts, decisions, preferences, snippets, file notes) in IndexedDB and copies a chosen set as Markdown. No backend. Repo: thymeed/Squirrow (public).
 
 ## Commands
 
@@ -9,12 +9,13 @@ Local-first React 19 + TypeScript + Vite app that stores per-project AI context 
 
 ## Where things live
 
-- `src/core/types.ts` has the data types and `ENTRY_KINDS`.
+- `src/core/types.ts` has the data types, `ENTRY_KINDS`, the model window table (`MODEL_PROFILES`) and `parseContextWindow`.
 - `src/core/repository.ts` is the storage interface plus the IndexedDB implementation.
 - `src/core/store.ts` is the React hook that writes to the repository, then updates state.
-- `src/core/search.ts`, `inject.ts`, `markdown.ts` and `portability.ts` hold the pure logic: ranking, context building and token estimate, fence-safe Markdown helpers, import/export parsing.
+- `src/core/search.ts`, `inject.ts`, `markdown.ts` and `portability.ts` hold the pure logic: search and task scoring, context building, the token estimate and Auto-pick (`selectContext`), fence-safe Markdown helpers, import/export parsing.
+- `src/ui/useUpdateReady.ts` watches for a waiting service worker and reloads every tab when a new one takes over. `scripts/stamp-sw.mjs` stamps the build hash into `dist/sw.js`.
 - `src/ui/App.tsx` holds all screens and keyboard shortcuts. `src/ui/styles.scss` holds all styling and the dark theme.
-- `tests/core.test.ts` covers `src/core`, `tests/store.test.tsx` the store hook, `tests/app.test.tsx` the main UI flows, and `tests/sw.test.ts` runs `public/sw.js` against fake caches.
+- `tests/core.test.ts` covers `src/core`, `tests/store.test.tsx` the store hook, `tests/app.test.tsx` the main UI flows, `tests/sw.test.ts` runs `public/sw.js` against fake caches, and `tests/stamp-sw.test.ts` covers the build stamp.
 
 ## Rules for working here
 
@@ -27,6 +28,7 @@ Local-first React 19 + TypeScript + Vite app that stores per-project AI context 
 ## Status
 
 - MVP is built and CI is green. Live at https://squirrow.thymeed.workers.dev, deployed by Cloudflare Workers Builds from `main` (`wrangler.jsonc` publishes `dist`).
-- Done: PWA (manifest, icons, offline service worker in `public/`), landing copy and SEO tags in `index.html`, v1.0.0 released 2026-10-17 after a live check of the v3 service worker upgrade.
-- Open: outside tester feedback (goes into 1.0.x). Cloudflare builds only run for `main`; preview builds for PR branches are switched off, so PRs show just the GitHub `test` check.
-- Not done: list virtualization (skipped on purpose). The build stamps a content hash into the `CACHE` name in `dist/sw.js` (`scripts/stamp-sw.mjs`), so every release that changes a shipped file triggers the update prompt. Do not hand-bump `CACHE`; the source value `squirrow-dev` is a placeholder.
+- Done: PWA (manifest, icons, offline service worker in `public/`), landing copy and SEO tags in `index.html`. v1.0.0 released 2026-10-17. v1.1.0 released 2026-10-21: rename to Squirrow with a migration from the old `context-keeper` database, a prompt-before-update flow (checked live), and Auto-pick with model budgets.
+- Open: outside tester feedback (none yet; goes into 1.1.x). Cloudflare builds only run for `main`; preview builds for PR branches are switched off, so PRs show just the GitHub `test` check.
+- Service worker: the build stamps a content hash into the `CACHE` name in `dist/sw.js` (`scripts/stamp-sw.mjs`), so every release that changes a shipped file triggers the update prompt. Do not hand-bump `CACHE`; the source value `squirrow-dev` is a placeholder.
+- Not done: list virtualization (skipped on purpose). Auto-pick measures each candidate by rebuilding the context, which is slow with thousands of entries in one project.
