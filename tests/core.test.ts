@@ -8,6 +8,7 @@ import {
   BUDGET_SHARES,
   MODEL_PROFILES,
   budgetTokens,
+  parseContextWindow,
   newId,
   type Entry,
   type Project,
@@ -54,6 +55,33 @@ describe('task scoring', () => {
   it('gives every entry a zero score for an empty or all-stopword task', () => {
     expect([...scoreTask([a, b], '  ').values()]).toEqual([0, 0])
     expect([...scoreTask([a, b], 'how do i').values()]).toEqual([0, 0])
+  })
+})
+
+describe('task scoring on long, chatty tasks', () => {
+  it('does not let common request words outrank a rare relevant term', () => {
+    const relevant = entry('Parser', 'the csv parser lives here')
+    const chatty = entry('Team notes', 'can you help me write and make and use new things, please')
+    const scores = scoreTask(
+      [relevant, chatty],
+      'can you help me write and make and use new things to parse csv',
+    )
+    expect(scores.get(relevant.id)!).toBeGreaterThan(scores.get(chatty.id)!)
+  })
+  it('only reads the first words of a very long task', () => {
+    const rare = entry('Zebra', 'ends the list')
+    const task = `${Array.from({ length: 200 }, (_, i) => `filler${i}`).join(' ')} zebra`
+    expect(scoreTask([rare], task).get(rare.id)).toBe(0)
+  })
+})
+
+describe('context window input', () => {
+  it('accepts whole numbers from 1000 to 10 million and nothing else', () => {
+    expect(
+      ['999', '1000', ' 5000 ', '10000000', '10000001', '1e6', '12.5', '', 'abc', '-5'].map(
+        parseContextWindow,
+      ),
+    ).toEqual([null, 1000, 5000, 10_000_000, null, null, null, null, null, null])
   })
 })
 

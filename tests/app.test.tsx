@@ -381,6 +381,22 @@ describe('app smoke', () => {
     expect(ticked()).toEqual([expect.stringContaining('Use Postgres')])
   })
 
+  it('drops a hand tick from a hidden entry when Select all replaces the ticked set', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    await addEntry('Big notes', 'x'.repeat(4000))
+    await tick('Big notes')
+    await act(async () => type(searchInput(), 'postgres'))
+    await click(button('Select all'))
+    await act(async () => type(searchInput(), ''))
+    await until(() => ticked().length === 1)
+    await choose(modelSelect(), 'small')
+    await click(button('Auto-pick'))
+    await until(() => text().includes('1 of 2 included'))
+    expect(ticked()).toEqual([expect.stringContaining('Use Postgres')])
+    expect(host.querySelector('[role="alert"]')).toBeNull()
+  })
+
   it('budgets from a custom context window and shows it in the status', async () => {
     await addProject('Demo')
     await addEntry('Use Postgres', 'version 16')

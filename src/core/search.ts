@@ -6,6 +6,8 @@ const tokenize = (s: string) =>
     .split(/[^\p{L}\p{N}]+/u)
     .filter(Boolean)
 
+const MAX_TASK_TERMS = 24
+
 const STOPWORDS = new Set([
   'the',
   'and',
@@ -34,6 +36,37 @@ const STOPWORDS = new Set([
   'why',
   'do',
   'does',
+  'can',
+  'you',
+  'your',
+  'help',
+  'write',
+  'make',
+  'use',
+  'using',
+  'new',
+  'add',
+  'need',
+  'want',
+  'get',
+  'please',
+  'have',
+  'has',
+  'will',
+  'would',
+  'should',
+  'could',
+  'about',
+  'just',
+  'like',
+  'some',
+  'any',
+  'all',
+  'but',
+  'not',
+  'out',
+  'its',
+  'was',
 ])
 
 /** A title hit weighs 3, a body hit 1. Zero means the term appears in neither. */
@@ -56,7 +89,9 @@ function scoreEntry(e: Entry, terms: string[]): number {
 
 /** Scores each entry against a task sentence. Each distinct content word adds its weight, so partial matches count. */
 export function scoreTask(entries: Entry[], task: string): Map<Id, number> {
-  const terms = [...new Set(tokenize(task))].filter((t) => t.length >= 3 && !STOPWORDS.has(t))
+  const terms = [...new Set(tokenize(task))]
+    .filter((t) => t.length >= 3 && !STOPWORDS.has(t))
+    .slice(0, MAX_TASK_TERMS)
   return new Map(
     entries.map((e) => {
       const title = tokenize(e.title)

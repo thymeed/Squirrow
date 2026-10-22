@@ -46,10 +46,12 @@ export const BUDGET_SHARES = [0.05, 0.1, 0.25] as const
 export const budgetTokens = (contextTokens: number, share: number): number =>
   Math.floor(contextTokens * share)
 
-/** The typed window in tokens, or null unless it is a whole number of at least 1000. */
+export const MAX_CONTEXT_WINDOW = 10_000_000
+
+/** The typed window in tokens, or null unless it is a whole number from 1000 to 10 million. */
 export const parseContextWindow = (raw: string): number | null => {
   const text = raw.trim()
   if (!/^\d+$/.test(text)) return null
   const tokens = Number(text)
-  return tokens >= 1000 ? tokens : null
+  return tokens >= 1000 && tokens <= MAX_CONTEXT_WINDOW ? tokens : null
 }

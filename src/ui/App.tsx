@@ -395,9 +395,8 @@ export function App() {
                     setAutoPick(null)
                     setSelected(new Set(visible.map((e) => e.id)))
                     setHand((h) => {
-                      const next = new Map(h)
-                      for (const e of visible) next.delete(e.id)
-                      return next
+                      const shown = new Set(visible.map((e) => e.id))
+                      return new Map([...h].filter(([id, ticked]) => !ticked && !shown.has(id)))
                     })
                   }}
                 >
