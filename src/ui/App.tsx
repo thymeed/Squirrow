@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { buildContext, estimateTokens, selectContext, type Selection } from '../core/inject'
 import { exportJson, exportMarkdown, parseSnapshot } from '../core/portability'
-import { searchEntries } from '../core/search'
+import { filterByKinds, searchEntries } from '../core/search'
 import { useStore } from '../core/store'
 import {
   BUDGET_SHARES,
@@ -72,6 +72,7 @@ export function App() {
   const { data } = store
   const [projectId, setProjectId] = useState<Id | null>(null)
   const [query, setQuery] = useState('')
+  const [kinds, setKinds] = useState<Set<EntryKind>>(new Set())
   const [selected, setSelected] = useState<Set<Id>>(new Set())
   // true: the user ticked it by hand. false: the user unticked it. Absent: Auto-pick decides.
   const [hand, setHand] = useState<Map<Id, boolean>>(new Map())
@@ -91,13 +92,17 @@ export function App() {
     () => data.entries.filter((e) => e.projectId === project?.id),
     [data.entries, project?.id],
   )
-  const visible = useMemo(() => searchEntries(projectEntries, query), [projectEntries, query])
+  const visible = useMemo(
+    () => searchEntries(filterByKinds(projectEntries, kinds), query),
+    [projectEntries, kinds, query],
+  )
   const chosen = projectEntries.filter((e) => selected.has(e.id))
   const context = project ? buildContext(project, chosen) : ''
 
   useEffect(() => {
     setSelected(new Set())
     setHand(new Map())
+    setKinds(new Set())
   }, [project?.id])
 
   useEffect(() => {
@@ -131,6 +136,15 @@ export function App() {
       const next = new Set(s)
       if (nowTicked) next.add(id)
       else next.delete(id)
+      return next
+    })
+  }
+
+  const toggleKind = (kind: EntryKind) => {
+    setKinds((k) => {
+      const next = new Set(k)
+      if (next.has(kind)) next.delete(kind)
+      else next.add(kind)
       return next
     })
   }
@@ -259,6 +273,18 @@ export function App() {
                 + Entry (n)
               </button>
             </div>
+            <div className="kind-filter" role="group" aria-label="Filter by kind">
+              {ENTRY_KINDS.map((k) => (
+                <button
+                  key={k}
+                  className={`kind-${k}`}
+                  aria-pressed={kinds.has(k)}
+                  onClick={() => toggleKind(k)}
+                >
+                  {KIND_ICON[k]} {k}
+                </button>
+              ))}
+            </div>
             <ul className="entries">
               {visible.map((e) => (
                 <li key={e.id} className={`kind-${e.kind}`}>
@@ -278,9 +304,16 @@ export function App() {
                   </div>
                 </li>
               ))}
-              {visible.length === 0 && query && <li className="empty">No matches. Try a shorter word.</li>}
+              {visible.length === 0 && query && (
+                <li className="empty">
+                  No matches. Try a shorter word{kinds.size > 0 ? ' or turn a chip off' : ''}.
+                </li>
+              )}
+              {projectEntries.length > 0 && visible.length === 0 && !query && kinds.size > 0 && (
+                <li className="empty">No entries of these kinds. Turn a chip off to see more.</li>
+              )}
             </ul>
-            {visible.length === 0 && !query && <Welcome hasProject />}
+            {projectEntries.length === 0 && !query && <Welcome hasProject />}
             <section className="inject">
               <h2>📋 Copy for your AI chat</h2>
               <p>

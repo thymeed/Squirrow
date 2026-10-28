@@ -1,4 +1,4 @@
-import type { Entry, Id } from './types'
+import type { Entry, EntryKind, Id } from './types'
 
 const tokenize = (s: string) =>
   s
@@ -99,6 +99,12 @@ export function scoreTask(entries: Entry[], task: string): Map<Id, number> {
       return [e.id, terms.reduce((sum, t) => sum + termWeight(title, body, t), 0)]
     }),
   )
+}
+
+/** Keeps the entries whose kind is in the set. An empty set keeps everything. */
+export function filterByKinds(entries: Entry[], kinds: ReadonlySet<EntryKind>): Entry[] {
+  if (kinds.size === 0) return entries
+  return entries.filter((e) => kinds.has(e.kind))
 }
 
 export function searchEntries(entries: Entry[], query: string): Entry[] {
