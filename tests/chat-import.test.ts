@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_DRAFTS, MAX_INPUT_CHARS, parseChatSummary, type Draft } from '../src/core/chatImport'
+import {
+  MAX_DRAFTS,
+  MAX_INPUT_CHARS,
+  parseChatSummary,
+  parseChatSummaryDetailed,
+  type Draft,
+} from '../src/core/chatImport'
 
 /** The drafts as plain [kind, title, body] rows, so a table reads at a glance. */
 const rows = (drafts: Draft[]) => drafts.map((d) => [d.kind, d.title, d.body])
@@ -55,7 +61,7 @@ describe('parseChatSummary: bullets', () => {
       ['Use Postgres 16'],
     ],
     [
-      'a hyphen with no digit is not a numbered bullet',
+      'a line that starts with a number and a dot, such as "1.5 million users", is not a numbered bullet',
       '1.5 million users\n- two',
       ['1.5 million users', 'two'],
     ],
@@ -86,8 +92,26 @@ describe('parseChatSummary: bullets', () => {
     ['"**Title**: rest" splits after the bold', '- **Database**: Postgres 16', ['Database', 'Postgres 16']],
     ['"**Title:** rest" splits inside the bold', '- **Database:** Postgres 16', ['Database', 'Postgres 16']],
     ['a URL is not split', '- See http://example.com', ['See http://example.com', '']],
+    ['"Note: x" with a short label still splits', '- Note: x', ['Note', 'x']],
   ])('%s', (_name, input, [title, body]) => {
     expect(parseChatSummary(input)).toEqual([expect.objectContaining({ title, body })])
+  })
+
+  it.each<[string, string]>([
+    ['a time keeps its colon', '- We meet at 10:30 daily'],
+    ['a ratio keeps its colon', '- Screens are 16:9 only'],
+    ['a Windows path keeps its colon', '- Config is in C:\\foo\\bar.ts'],
+    ['a drive path at the end keeps its colon', '- See D:\\proj\\x'],
+    ['a URL with a colon in the path stays whole', '- Docs at https://example.com/a:b'],
+    ['a time followed by a colon stays whole', '- 12:30: lunch'],
+  ])('%s', (_name, input) => {
+    expect(parseChatSummary(input).map((d) => [d.title, d.body])).toEqual([[input.slice(2), '']])
+  })
+
+  it('splits a loose paragraph whose colon is followed by a space', () => {
+    expect(rows(parseChatSummary('Meeting at 10:30: bring notes'))).toEqual([
+      ['fact', 'Meeting at 10:30: bring notes', ''],
+    ])
   })
 
   it('does not split when the label is longer than 60 characters', () => {
@@ -225,6 +249,20 @@ describe('parseChatSummary: code fences', () => {
 
   it('does not import an empty fence', () => {
     expect(parseChatSummary('```js\n```')).toEqual([])
+  })
+
+  it('keeps the text line above an empty fence as a paragraph', () => {
+    expect(rows(parseChatSummary('Keep this title line\n```\n```'))).toEqual([
+      ['fact', 'Keep this title line', ''],
+    ])
+  })
+
+  it('keeps the text line above a whitespace-only fence as a paragraph', () => {
+    expect(rows(parseChatSummary('Keep me\n```\n   \n```'))).toEqual([['fact', 'Keep me', '']])
+  })
+
+  it('takes the line above a non-empty fence as its title, and does not repeat it', () => {
+    expect(rows(parseChatSummary('Keep me\n```\nx\n```'))).toEqual([['snippet', 'Keep me', 'x']])
   })
 })
 
@@ -438,5 +476,68 @@ describe('parseChatSummary: a realistic chat summary', () => {
       ['fact', 'Next step', 'write the import dialog.'],
       ['fact', 'Open questions', 'Should imports merge or replace?'],
     ])
+  })
+})
+
+describe('parseChatSummaryDetailed: caps', () => {
+  it('reports nothing cut for a normal paste', () => {
+    expect(parseChatSummaryDetailed('- Vite\n- Postgres').truncated).toBeNull()
+  })
+
+  it('reports nothing cut at exactly the draft cap', () => {
+    const input = Array.from({ length: MAX_DRAFTS }, (_, i) => `- item ${i}`).join('\n')
+    const result = parseChatSummaryDetailed(input)
+    expect(result.drafts).toHaveLength(MAX_DRAFTS)
+    expect(result.truncated).toBeNull()
+  })
+
+  it('reports drafts cut past the draft cap', () => {
+    const input = Array.from({ length: MAX_DRAFTS + 1 }, (_, i) => `- item ${i}`).join('\n')
+    const result = parseChatSummaryDetailed(input)
+    expect(result.drafts).toHaveLength(MAX_DRAFTS)
+    expect(result.truncated).toBe('drafts')
+  })
+
+  it('reports characters cut past the character cap', () => {
+    const input = `- head\n${Array.from({ length: 30_000 }, (_, i) => `  line ${i}`).join('\n')}`
+    expect(input.length).toBeGreaterThan(MAX_INPUT_CHARS)
+    expect(parseChatSummaryDetailed(input).truncated).toBe('chars')
+  })
+
+  it('drops the line the character cap cuts in half, so no partial line becomes text', () => {
+    const lines = Array.from({ length: 30_000 }, (_, i) => `  line ${i}`)
+    const input = `- head\n${lines.join('\n')}`
+    const { drafts } = parseChatSummaryDetailed(input)
+    // The whole lines that end before the cap, after the head line. Their indent is removed in the body.
+    const cutAt = input.lastIndexOf('\n', MAX_INPUT_CHARS)
+    const kept = input.slice(0, cutAt).split('\n').slice(1)
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0]!.body).toBe(kept.map((l) => l.slice(2)).join('\n'))
+    expect(input.slice(cutAt + 1).startsWith(lines[kept.length]!)).toBe(true)
+  })
+
+  it('keeps the last whole line when the cap falls right after its line break', () => {
+    const head = '- kept\n'
+    const run = 'x'.repeat(MAX_INPUT_CHARS - head.length - 1)
+    const input = `${head}${run}\n- late`
+    const { drafts, truncated } = parseChatSummaryDetailed(input)
+    expect(truncated).toBe('chars')
+    expect(drafts).toHaveLength(1)
+    expect(drafts[0]!.body).toBe(run)
+  })
+
+  it('reports drafts first when both caps are hit', () => {
+    const input = Array.from({ length: 20_000 }, (_, i) => `- item ${i}`).join('\n')
+    expect(input.length).toBeGreaterThan(MAX_INPUT_CHARS)
+    expect(parseChatSummaryDetailed(input).truncated).toBe('drafts')
+  })
+
+  it('parseChatSummary returns the same drafts as the detailed parser', () => {
+    const input = Array.from({ length: MAX_DRAFTS + 5 }, (_, i) => `- item ${i}`).join('\n')
+    expect(parseChatSummary(input)).toEqual(parseChatSummaryDetailed(input).drafts)
+  })
+
+  it('returns no drafts and no cut for input that is not a string', () => {
+    expect(parseChatSummaryDetailed(undefined as unknown as string)).toEqual({ drafts: [], truncated: null })
   })
 })

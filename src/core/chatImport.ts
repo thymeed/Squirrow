@@ -80,10 +80,21 @@ const SECTION_HINTS: readonly { kind: EntryKind; match: RegExp }[] = [
   { kind: 'file-note', match: /\bfile/i },
 ]
 
-/** Input past this many characters (after line endings are normalized) is ignored, so a huge paste stays fast. */
+/**
+ * Input past this many characters (after line endings are normalized) is cut at the last line break before
+ * the cap, so a huge paste stays fast and no line is read half way.
+ */
 export const MAX_INPUT_CHARS = 200_000
-/** Drafts past this count are dropped. Later content is not read. */
+/** Drafts past this count are dropped. */
 export const MAX_DRAFTS = 200
+
+/** Which cap cut the paste short, or null when neither did. */
+export type Truncation = 'drafts' | 'chars' | null
+
+export interface ChatSummary {
+  drafts: Draft[]
+  truncated: Truncation
+}
 
 const TITLE_MAX = 80
 const LABEL_MAX = 60
@@ -92,8 +103,12 @@ const HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$/
 const BULLET = /^(\s*)(?:[-*+]|\d{1,9}[.)])(?:\s+(.*))?$/
 const FENCE_OPEN = /^(\s*)(`{3,}|~{3,})(.*)$/
 const FENCE_CLOSE = /^\s*(`{3,}|~{3,})\s*$/
-/** "Title: rest", "**Title**: rest" and "**Note:** rest". Group 1 is the label, group 2 is what follows the colon. */
-const LABEL = /^(?:\*\*|__)?([^:]+?)(?:\*\*|__)?:(.*)$/
+/**
+ * "Title: rest", "**Title**: rest" and "**Note:** rest". The colon must be followed by a space or the end of the
+ * line (after an optional closing bold), so "10:30", "C:\x" and "http://" stay whole. Group 1 is the label,
+ * group 2 is what follows the colon.
+ */
+const LABEL = /^(?:\*\*|__)?([^:]+?)(?:\*\*|__)?:(?:(?:\*\*|__)?(?=\s|$))(.*)$/
 
 type LineKind = 'none' | 'heading' | 'item' | 'continuation' | 'text' | 'fence'
 
@@ -129,15 +144,14 @@ function joinLines(first: string, rest: string[]): string {
   return [first, ...rest.map((l) => l.slice(shift))].join('\n').trim()
 }
 
-/** A bullet's or a paragraph's title and body. "Title: rest" splits at the colon when the label is short. */
+/** A bullet's or a paragraph's title and body. "Title: rest" splits at a colon followed by a space when the label is short. */
 function splitItem(head: string, rest: string[]): Pick<Draft, 'title' | 'body'> {
   const label = LABEL.exec(head)
   if (label) {
     const name = stripBold(label[1] ?? '').trim()
     const after = label[2] ?? ''
-    // "http://..." has a colon too, so a colon followed by "//" is not a label.
-    if (name && name.length <= LABEL_MAX && !after.startsWith('//')) {
-      return { title: name, body: joinLines(after.replace(/^(?:\*\*|__)/, '').trim(), rest) }
+    if (name && name.length <= LABEL_MAX) {
+      return { title: name, body: joinLines(after.trim(), rest) }
     }
   }
   return titled(head, joinLines('', rest))
@@ -167,22 +181,29 @@ const unindent = (line: string, width: number): string => {
  *   becomes one entry, in input order. Its first line is the title and the rest is the body, split and
  *   guessed the same way as a bullet. Indented lines under a bullet stay in that bullet's body.
  * - Each top-level bullet (-, *, +, 1. or 1)) becomes one entry. Its first line is the title. Indented
- *   lines and nested bullets go to its body. "Title: rest" splits at the colon when the label is short.
+ *   lines and nested bullets go to its body. "Title: rest" splits at a colon followed by a space when the label is short.
  * - A fenced code block becomes a snippet, whose body is exactly the code. Its title is the text line
  *   just above it (if short), else the section heading, else "<language> snippet", else "Snippet".
  *   That line is used as the title, so it is not also a paragraph. A fence indented inside a bullet is a
  *   snippet too, and it is not part of the bullet's body. An unclosed fence runs to the end of the input.
  * - Titles longer than 80 characters are cut at a sentence end or word break, with an ellipsis. The
  *   full first line goes to the body, so nothing is lost.
- * - Bullets with no text are skipped. Input past MAX_INPUT_CHARS and drafts past MAX_DRAFTS are dropped
- *   without a message.
+ * - Bullets with no text are skipped. Input past MAX_INPUT_CHARS is cut at the last line break before the
+ *   cap, and drafts past MAX_DRAFTS are dropped. Either one sets `truncated`, so the caller can say so.
  */
-export function parseChatSummary(text: string): Draft[] {
-  if (typeof text !== 'string') return []
-  const lines = text.replace(/\r\n?/g, '\n').slice(0, MAX_INPUT_CHARS).split('\n')
+export function parseChatSummaryDetailed(text: string): ChatSummary {
+  if (typeof text !== 'string') return { drafts: [], truncated: null }
+  const normal = text.replace(/\r\n?/g, '\n')
+  const charsCut = normal.length > MAX_INPUT_CHARS
+  // The last line break at or before the cap. Lines before it are whole, so the line cut by the cap is dropped.
+  const kept = charsCut ? normal.slice(0, Math.max(normal.lastIndexOf('\n', MAX_INPUT_CHARS), 0)) : normal
+  const lines = kept.split('\n')
   const drafts: Draft[] = []
+  let overflow = false
   const add = (d: Draft) => {
-    if (d.title && drafts.length < MAX_DRAFTS) drafts.push(d)
+    if (!d.title) return
+    if (drafts.length < MAX_DRAFTS) drafts.push(d)
+    else overflow = true
   }
 
   let sectionTitle = ''
@@ -242,7 +263,7 @@ export function parseChatSummary(text: string): Draft[] {
     }
   }
 
-  for (let i = 0; i < lines.length && drafts.length < MAX_DRAFTS; i++) {
+  for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!
 
     if (line.trim() === '') {
@@ -265,19 +286,20 @@ export function parseChatSummary(text: string): Draft[] {
         if (close && close[1]![0] === marker[0] && close[1]!.length >= marker.length) break
         code.push(unindent(lines[j]!, indent))
       }
+      const body = code.join('\n').trimEnd()
       // The title is the nearest text line above the fence, if it is short. Blank lines are skipped.
       const above = last.kind === 'text' ? stripBold(last.text).trim() : ''
       const useAbove = above !== '' && above.length <= TITLE_MAX
       closeParagraph()
       const owner = loose[loose.length - 1]
-      if (useAbove && owner) {
+      // Only a fence that adds a snippet takes that line. An empty fence leaves the line as a paragraph.
+      if (useAbove && owner && body.trim()) {
         // That line is the title, so it does not also become a paragraph. It is the last line of the last paragraph.
         owner.pop()
         if (owner.length === 0) loose.pop()
       }
       const title = useAbove ? above : sectionTitle || (lang ? `${lang} snippet` : 'Snippet')
       startBlock()
-      const body = code.join('\n').trimEnd()
       if (body.trim()) {
         const snippet: Draft = { kind: 'snippet', title, body }
         if (item) nested.push(snippet)
@@ -341,5 +363,11 @@ export function parseChatSummary(text: string): Draft[] {
 
   flushItem()
   flushSection()
-  return drafts
+  const truncated: Truncation = overflow ? 'drafts' : charsCut ? 'chars' : null
+  return { drafts, truncated }
+}
+
+/** The drafts only. See parseChatSummaryDetailed for the caps. */
+export function parseChatSummary(text: string): Draft[] {
+  return parseChatSummaryDetailed(text).drafts
 }

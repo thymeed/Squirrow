@@ -57,6 +57,7 @@ React 19, TypeScript and Vite. Logic lives in `src/core` with no React imports: 
 - A saved pick stores which entries it holds, not their text. Editing an entry shows the new text in the pick, and deleting one drops it from the pick when the pick loads.
 - Squirrow runs one version at a time per browser. If an older tab is still open, a newer tab shows a message and waits until that tab is closed or reloaded.
 - Kind guessing for chat imports is keyword-based, so it will sometimes guess wrong. Well-known dotted names such as "Node.js" are read as tech names, not files. That is why you review the drafts before saving them.
+- A chat import reads at most 200 drafts and 200,000 characters of pasted text. Past either cap the rest is skipped, and the review screen says which cap was hit. Characters are cut at the last whole line before the cap.
 - The list is not virtualized, which is fine for hundreds of entries. It would need changing for thousands.
 - Tests cover `src/core`, the main UI flows and the service worker. Browser-specific behavior such as installing and clipboard permissions is checked by hand.
 

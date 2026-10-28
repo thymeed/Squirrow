@@ -8,7 +8,13 @@ import {
   shouldShowBackupNudge,
   writeStoredTime,
 } from '../core/backup'
-import { parseChatSummary, type Draft } from '../core/chatImport'
+import {
+  MAX_DRAFTS,
+  MAX_INPUT_CHARS,
+  parseChatSummaryDetailed,
+  type Draft,
+  type Truncation,
+} from '../core/chatImport'
 import {
   buildContext,
   estimateTokens,
@@ -116,6 +122,8 @@ export function App() {
   const [autoPick, setAutoPick] = useState<AutoPick | null>(null)
   const [editing, setEditing] = useState<Partial<Entry> | null>(null)
   const [importing, setImporting] = useState(false)
+  // True while the import dialog saves its drafts. Esc and the overlay do not close the dialog then.
+  const [importSaving, setImportSaving] = useState(false)
   const [pickName, setPickName] = useState('')
   const [notice, setNotice] = useState('')
   // Null until the tokenizer loads, and stays null if it fails. Then the 4-character estimate is used.
@@ -179,7 +187,7 @@ export function App() {
         ev.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ev.target.tagName)
       if (ev.key === 'Escape') {
         setEditing(null)
-        setImporting(false)
+        if (!importSaving) setImporting(false)
       }
       if (typing || ev.ctrlKey || ev.metaKey || ev.altKey || importing) return
       if (ev.key === '/') {
@@ -193,7 +201,7 @@ export function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [project, importing])
+  }, [project, importing, importSaving])
 
   const toggle = (id: Id) => {
     const nowTicked = !selected.has(id)
@@ -257,20 +265,25 @@ export function App() {
   // appends. On a failure it stops and reports how many were saved, and the dialog keeps the rest.
   const saveDrafts = async (kept: Draft[]): Promise<{ saved: number; error?: string }> => {
     if (!project) return { saved: 0, error: 'No project is open' }
-    let saved = 0
-    for (const draft of kept) {
-      try {
-        await store.saveEntry({ ...draft, projectId: project.id })
-      } catch (err) {
-        const error = err instanceof Error ? err.message : "Couldn't save that entry"
-        setNotice(`Saved ${saved} of ${kept.length} entries. The rest were not saved.`)
-        return { saved, error }
+    setImportSaving(true)
+    try {
+      let saved = 0
+      for (const draft of kept) {
+        try {
+          await store.saveEntry({ ...draft, projectId: project.id })
+        } catch (err) {
+          const error = err instanceof Error ? err.message : "Couldn't save that entry"
+          setNotice(`Saved ${saved} of ${kept.length} entries. The rest were not saved.`)
+          return { saved, error }
+        }
+        saved++
       }
-      saved++
+      setImporting(false)
+      setNotice(`Imported ${entriesText(saved)}.`)
+      return { saved }
+    } finally {
+      setImportSaving(false)
     }
-    setImporting(false)
-    setNotice(`Imported ${entriesText(saved)}.`)
-    return { saved }
   }
 
   // Loading is a manual choice: the loaded entries are hand-ticked (so Auto-pick keeps them), and
@@ -665,7 +678,14 @@ export function App() {
           }}
         />
       )}
-      {importing && project && <ImportDialog onCancel={() => setImporting(false)} onSave={saveDrafts} />}
+      {importing && project && (
+        <ImportDialog
+          onCancel={() => {
+            if (!importSaving) setImporting(false)
+          }}
+          onSave={saveDrafts}
+        />
+      )}
     </div>
   )
 }
@@ -736,6 +756,12 @@ function EntryDialog(props: {
 
 const NOTHING_TO_IMPORT = 'Nothing to import. Paste a chat summary with headings, bullets or code blocks.'
 
+/** Shown on the review step when a cap cut the paste short. */
+const CUT_MESSAGE: Record<'drafts' | 'chars', string> = {
+  drafts: `Only the first ${MAX_DRAFTS} drafts were read; the rest of the paste was skipped.`,
+  chars: `Only the first ${MAX_INPUT_CHARS.toLocaleString('en-US')} characters were read, up to the last whole line; the rest of the paste was skipped.`,
+}
+
 /** A draft in the preview. Its key stays the same while it is edited, so the card keeps its place. */
 type Card = Draft & { key: number }
 
@@ -754,6 +780,7 @@ function ImportDialog(props: {
   const [attempted, setAttempted] = useState(false)
   const [saving, setSaving] = useState(false)
   const [failure, setFailure] = useState('')
+  const [cut, setCut] = useState<Truncation>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const reviewing = cards !== null
@@ -764,7 +791,8 @@ function ImportDialog(props: {
 
   const preview = (e: FormEvent) => {
     e.preventDefault()
-    const drafts = parseChatSummary(text)
+    const { drafts, truncated } = parseChatSummaryDetailed(text)
+    setCut(truncated)
     if (drafts.length === 0) {
       setMessage(NOTHING_TO_IMPORT)
       return
@@ -823,6 +851,11 @@ function ImportDialog(props: {
               Check each draft, because guessed kinds are often wrong. Back keeps your pasted text, but edits
               made here are replaced when you preview again.
             </p>
+            {cut && (
+              <p role="status" className="hint">
+                {CUT_MESSAGE[cut]}
+              </p>
+            )}
             <ul className="draft-list">
               {cards.map((c, n) => {
                 const untitled = attempted && !c.title.trim()
@@ -906,8 +939,8 @@ function ImportDialog(props: {
             <h3>Import from chat</h3>
             <p className="hint">
               Recognized: <code># headings</code>, bullets (<code>-</code>, <code>*</code>, <code>+</code>,{' '}
-              <code>1.</code>) and <code>```</code> code blocks. Nothing leaves your browser, and no AI is
-              used.
+              <code>1.</code>), paragraphs and <code>```</code> code blocks. Nothing leaves your browser, and
+              no AI is used.
             </p>
             <textarea
               autoFocus
