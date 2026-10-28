@@ -297,6 +297,8 @@ describe('parseChatSummary: a whole paste inside one text fence', () => {
     ['js', 'js snippet'],
     ['bash', 'bash snippet'],
     ['json', 'json snippet'],
+    ['plaintext', 'plaintext snippet'],
+    ['txt', 'txt snippet'],
   ])('keeps a ```%s fence as one snippet', (lang, title) => {
     expect(rows(parseChatSummary(`\`\`\`${lang}\n- Vite\n- Postgres\n\`\`\``))).toEqual([
       ['snippet', title, '- Vite\n- Postgres'],
@@ -363,10 +365,28 @@ describe('parseChatSummary: a whole paste inside one text fence', () => {
     expect(rows(parseChatSummary('  ```md\n  - Vite\n    - sub\n  ```'))).toEqual([['fact', 'Vite', '- sub']])
   })
 
+  it('flushes an indented wrapper to the left, so sibling bullets stay separate', () => {
+    expect(rows(parseChatSummary('  ```md\n  - Vite\n  - Postgres\n  ```'))).toEqual([
+      ['fact', 'Vite', ''],
+      ['fact', 'Postgres', ''],
+    ])
+    expect(rows(parseChatSummary('   ```md\n   - a\n   - b\n   ```'))).toEqual([
+      ['fact', 'a', ''],
+      ['fact', 'b', ''],
+    ])
+  })
+
   it('does not read a backtick fence whose info string has a backtick as a fence', () => {
     expect(rows(parseChatSummary('```md`\n- Vite\n```'))).toEqual([
       ['fact', '```md`', ''],
       ['fact', 'Vite', ''],
+    ])
+  })
+
+  it('does not unwrap a backtick fence whose info string has a backtick inside it', () => {
+    expect(rows(parseChatSummary('```md `x`\n- a\n```'))).toEqual([
+      ['fact', '```md `x`', ''],
+      ['fact', 'a', ''],
     ])
   })
 
