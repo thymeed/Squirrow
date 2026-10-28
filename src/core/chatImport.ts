@@ -339,8 +339,8 @@ function unwrapFence(text: string): string {
  *   sentence. A blank line, heading, bullet, fence or rule line such as "---" ends it. Each paragraph
  *   becomes one entry, in input order. Its lines are joined with single spaces, and the title is its first
  *   sentence. Split and guessed the same way as a bullet. Indented lines under a bullet stay in that bullet's body.
- * - Each top-level bullet (-, *, +, 1. or 1)) becomes one entry. Its first line, joined with the plain text lines
- *   right after it, is the title. Nested bullets and fences go to its body, and a fence is a snippet.
+ * - Each top-level bullet (-, *, +, 1. or 1)) becomes one entry. Its first line is joined with the plain text lines
+ *   right after it and titled like a paragraph. Nested bullets and fences go to its body, and a fence is a snippet.
  *   "Title: rest" splits at a colon followed by a space when the label is short.
  * - A fenced code block becomes a snippet, whose body is exactly the code. Its title is the text line
  *   just above it (if short), else the section heading, else "<language> snippet", else "Snippet".
@@ -348,8 +348,9 @@ function unwrapFence(text: string): string {
  *   snippet too, and it is not part of the bullet's body. An unclosed fence runs to the end of the input.
  * - A paste that is one fence with no language, or with md, markdown or text, is read as the text inside it,
  *   as in unwrapFence. That happens first, before the caps below, so the caps apply to the text inside.
- * - The lines of a paragraph or bullet are joined first. The title is its first sentence, cut at a sentence end or
- *   word break near 80 characters, with an ellipsis. The details hold the full joined text.
+ * - The lines of a paragraph or bullet are joined first. A joined run's title is its first sentence; a single
+ *   line's title is the whole line. A title over 80 characters is cut at a sentence end or word break, with an
+ *   ellipsis. When the title is not the whole text, the details hold the full joined text.
  * - Bullets with no text are skipped. Input past MAX_INPUT_CHARS is cut at the last line break before the
  *   cap, and drafts past MAX_DRAFTS are dropped. Either one sets `truncated`, so the caller can say so.
  * - If no whole line fits in the cap, the paste has text, and it is past the cap, nothing is read and
