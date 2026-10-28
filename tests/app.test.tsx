@@ -1429,7 +1429,9 @@ describe('import from chat', () => {
     const long = `- Long bullet\n${Array.from({ length: 12_000 }, (_, i) => `  continued line ${i} with some words`).join('\n')}`
     expect(long.length).toBeGreaterThan(200_000)
     await paste(long)
-    expect(draftTitles()).toEqual(['Long bullet'])
+    // The continuation lines are joined into the title, which is cut near 80 characters.
+    expect(draftTitles()).toHaveLength(1)
+    expect(draftTitles()[0]).toMatch(/^Long bullet continued line 0 with some words/)
     expect(host.querySelector('[role="dialog"] [role="status"]')!.textContent).toBe(
       'Only the first 200,000 characters were read, up to the last whole line; the rest of the paste was skipped.',
     )
