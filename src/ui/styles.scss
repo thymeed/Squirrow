@@ -97,6 +97,10 @@ textarea {
   border-radius: 8px;
   padding: 7px 12px;
 }
+::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
 button {
   cursor: pointer;
   transition:
@@ -204,12 +208,23 @@ main {
   padding: 24px;
   max-width: 860px;
   width: 100%;
+  min-width: 0;
 }
 .bar {
   display: flex;
   gap: 8px;
   input {
     flex: 1;
+    min-width: 0;
+  }
+  button {
+    white-space: nowrap;
+  }
+  @media (max-width: 720px) {
+    flex-wrap: wrap;
+    input {
+      flex: 1 1 100%;
+    }
   }
 }
 .kind-filter {
