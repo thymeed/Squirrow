@@ -8,7 +8,14 @@ import {
   shouldShowBackupNudge,
   writeStoredTime,
 } from '../core/backup'
-import { buildContext, estimateTokens, selectContext, type Selection } from '../core/inject'
+import {
+  buildContext,
+  estimateTokens,
+  loadTokenCounter,
+  selectContext,
+  type Selection,
+  type TokenCounter,
+} from '../core/inject'
 import { exportJson, exportMarkdown, parseSnapshot } from '../core/portability'
 import { filterByKinds, searchEntries } from '../core/search'
 import { useStore } from '../core/store'
@@ -30,6 +37,18 @@ interface AutoPick {
   unticked: Entry[]
   total: number
   budget: number
+  exact: boolean
+}
+
+/** Says which counter made a number: the real tokenizer, or the 4-character estimate. */
+function CountNote({ exact }: { exact: boolean }) {
+  return exact ? (
+    <span className="hint" title="Exact for recent GPT models. Approximate for Claude and Gemini.">
+      GPT-style count; close for Claude and Gemini
+    </span>
+  ) : (
+    <span className="hint">estimate</span>
+  )
 }
 
 const KIND_ICON: Record<EntryKind, string> = {
@@ -92,6 +111,8 @@ export function App() {
   const [autoPick, setAutoPick] = useState<AutoPick | null>(null)
   const [editing, setEditing] = useState<Partial<Entry> | null>(null)
   const [notice, setNotice] = useState('')
+  // Null until the tokenizer loads, and stays null if it fails. Then the 4-character estimate is used.
+  const [counter, setCounter] = useState<TokenCounter | null>(null)
   const [lastExportAt, setLastExportAt] = useState(() => readStoredTime(LAST_EXPORT_KEY))
   const [dismissedUntil, setDismissedUntil] = useState(() => readStoredTime(NUDGE_DISMISSED_KEY))
   const [firstEntrySeenAt, setFirstEntrySeenAt] = useState(() => readStoredTime(FIRST_ENTRY_SEEN_KEY))
@@ -110,6 +131,18 @@ export function App() {
   )
   const chosen = projectEntries.filter((e) => selected.has(e.id))
   const context = project ? buildContext(project, chosen) : ''
+  const count: TokenCounter = counter ?? estimateTokens
+  const tokenCount = useMemo(() => count(context), [count, context])
+
+  useEffect(() => {
+    let alive = true
+    loadTokenCounter().then((loaded) => {
+      if (alive && loaded) setCounter(() => loaded)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   useEffect(() => {
     setSelected(new Set())
@@ -185,15 +218,15 @@ export function App() {
     const pinned = new Set<Id>([...hand].filter(([, ticked]) => ticked).map(([id]) => id))
     const unticked = projectEntries.filter((e) => hand.get(e.id) === false)
     const candidates = projectEntries.filter((e) => hand.get(e.id) !== false)
-    const selection = selectContext(project, candidates, task, budget, pinned)
+    const selection = selectContext(project, candidates, task, budget, pinned, count)
     setSelected(new Set(selection.included.map((e) => e.id)))
-    setAutoPick({ selection, unticked, total: projectEntries.length, budget })
+    setAutoPick({ selection, unticked, total: projectEntries.length, budget, exact: counter !== null })
   }
 
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(context)
-      setNotice(`Copied ~${estimateTokens(context)} tokens`)
+      setNotice(`Copied ~${tokenCount} tokens`)
     } catch {
       setNotice("Couldn't copy. Your browser blocked the clipboard, so select the text below and copy it.")
     }
@@ -368,7 +401,7 @@ export function App() {
             <section className="inject">
               <h2>📋 Copy for your AI chat</h2>
               <p>
-                {chosen.length} selected · ~{estimateTokens(context)} tokens
+                {chosen.length} selected · ~{tokenCount} tokens <CountNote exact={counter !== null} />
               </p>
               <div className="budget">
                 <label>
@@ -440,7 +473,8 @@ export function App() {
                 <div className="budget-result">
                   <p role="status">
                     {autoPick.selection.included.length} of {autoPick.total} included, ~
-                    {autoPick.selection.tokens} of {autoPick.budget} tokens
+                    {autoPick.selection.tokens} of {autoPick.budget} tokens{' '}
+                    <CountNote exact={autoPick.exact} />
                   </p>
                   {autoPick.selection.overBudget && (
                     <p role="alert" className="notice">
