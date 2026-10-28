@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { buildContext, estimateTokens, selectContext } from '../src/core/inject'
 import { MAX_IMPORT_CHARS, exportJson, exportMarkdown, parseSnapshot } from '../src/core/portability'
 import { createIndexedDbRepository } from '../src/core/repository'
-import { scoreTask, searchEntries } from '../src/core/search'
+import { filterByKinds, scoreTask, searchEntries } from '../src/core/search'
 import {
   BUDGET_SHARES,
   MODEL_PROFILES,
@@ -36,6 +36,23 @@ describe('search', () => {
   })
   it('returns everything for an empty query', () => {
     expect(searchEntries([a, b], '  ')).toHaveLength(2)
+  })
+})
+
+describe('kind filter', () => {
+  const fact = entry('Fact', '', 'fact')
+  const decision = entry('Decision', '', 'decision')
+  const snippet = entry('Snippet', '', 'snippet')
+  const all = [fact, decision, snippet]
+  const titles = (list: Entry[]) => list.map((e) => e.title)
+  it('keeps everything for an empty set of kinds', () => {
+    expect(filterByKinds(all, new Set())).toEqual(all)
+  })
+  it('keeps only the entries of one kind', () => {
+    expect(titles(filterByKinds(all, new Set(['decision'])))).toEqual(['Decision'])
+  })
+  it('keeps the entries of every chosen kind, in their original order', () => {
+    expect(titles(filterByKinds(all, new Set(['snippet', 'fact'])))).toEqual(['Fact', 'Snippet'])
   })
 })
 

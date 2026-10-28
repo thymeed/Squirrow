@@ -22,6 +22,7 @@ Your entries live only in this browser on this device. Clearing site data, using
 
 - **Projects** with five kinds of entry: fact, decision, preference, snippet and file note. Each kind has its own color and icon, and the entry dialog explains the chosen kind with an example.
 - **Search** matches the start of any word, so `setup` finds "Database setup" but `base` does not. Every search word must match, and title matches rank above body matches. Ties go to the most recently edited entry.
+- **Kind filter:** click the kind chips under the search box to show only those kinds. Several chips can be on at once, and they work together with search.
 - **Copy for your AI chat:** tick entries, see a token estimate, and copy a paste-ready Markdown block. Snippets are wrapped in code fences.
 - **Auto-pick:** choose a model (or type your own context window), a share of it and a task, and Auto-pick fills that budget with the best entries. Entries matching your task words come first, then decisions, preferences and facts. Entries you tick by hand are kept, entries you untick stay out, and everything left out is listed so nothing disappears silently.
 - **Keyboard first:** `/` to search, `n` for a new entry, `Esc` to close.

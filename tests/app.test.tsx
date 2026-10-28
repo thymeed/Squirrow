@@ -2,6 +2,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { EntryKind } from '../src/core/types'
 import { App } from '../src/ui/App'
 import { useUpdateReady } from '../src/ui/useUpdateReady'
 
@@ -45,12 +46,13 @@ async function addProject(name: string) {
   await until(() => !!host.querySelector('.projects button.on'))
 }
 
-async function addEntry(title: string, body = '') {
+async function addEntry(title: string, body = '', kind: EntryKind = 'fact') {
   await click(button('+ Entry'))
   await act(async () => {
     type(host.querySelector<HTMLInputElement>('input[placeholder="Title"]')!, title)
     type(host.querySelector('textarea')!, body)
   })
+  if (kind !== 'fact') await choose(host.querySelector<HTMLSelectElement>('[role="dialog"] select')!, kind)
   await click(button('Save'))
   await until(() => !host.querySelector('[role="dialog"]'))
 }
@@ -58,6 +60,30 @@ async function addEntry(title: string, body = '') {
 const tick = (title: string) => {
   const label = [...host.querySelectorAll('.entries label')].find((l) => l.textContent?.includes(title))
   return click(label!.querySelector('input')!)
+}
+
+/** The entry titles currently listed, in order. */
+const shown = () => [...host.querySelectorAll('.entries strong')].map((s) => s.textContent)
+
+/** The kind chip whose label contains the given kind name. */
+const chip = (kind: string) => {
+  const found = [...host.querySelectorAll<HTMLButtonElement>('.kind-filter button')].find((b) =>
+    b.textContent?.includes(kind),
+  )
+  if (!found) throw new Error(`No kind chip "${kind}"`)
+  return found
+}
+
+/** The name of the project currently open in the sidebar. */
+const activeProject = () => host.querySelector('.projects button.on')?.textContent
+
+/** Opens a project from the sidebar list by its name. */
+const openProject = (name: string) => {
+  const found = [...host.querySelectorAll<HTMLButtonElement>('.projects button')].find(
+    (b) => b.textContent === name,
+  )
+  if (!found) throw new Error(`No project "${name}"`)
+  return click(found)
 }
 
 const ticked = () =>
@@ -188,6 +214,90 @@ describe('auto-pick status', () => {
     expect(text()).toContain('included')
     await addProject('Second')
     await until(() => !text().includes('included'))
+  })
+})
+
+describe('kind filter', () => {
+  it('shows only the entries of a chosen kind, and everything again when none is chosen', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    await addEntry('Chose Vite', '', 'decision')
+    await addEntry('helper', 'x = 1', 'snippet')
+    expect(shown()).toEqual(['Use Postgres', 'Chose Vite', 'helper'])
+    await click(chip('decision'))
+    expect(shown()).toEqual(['Chose Vite'])
+    expect(chip('decision').getAttribute('aria-pressed')).toBe('true')
+    await click(chip('decision'))
+    expect(shown()).toEqual(['Use Postgres', 'Chose Vite', 'helper'])
+    expect(chip('decision').getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('combines several chips as a union', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    await addEntry('Chose Vite', '', 'decision')
+    await addEntry('helper', 'x = 1', 'snippet')
+    await click(chip('fact'))
+    await click(chip('snippet'))
+    expect(shown()).toEqual(['Use Postgres', 'helper'])
+    expect(chip('decision').getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('applies the kind chips and the search together', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    await addEntry('Postgres style', '', 'preference')
+    await addEntry('Redis cache')
+    await click(chip('fact'))
+    await act(async () => type(searchInput(), 'postgres'))
+    expect(shown()).toEqual(['Use Postgres'])
+    await click(chip('fact'))
+    expect(shown()).toEqual(['Postgres style', 'Use Postgres'])
+    await click(chip('preference'))
+    await act(async () => type(searchInput(), 'redis'))
+    expect(shown()).toEqual([])
+    expect(text()).toContain('No matches')
+    expect(text()).not.toContain('Nothing saved here yet')
+  })
+
+  it('keeps the empty-project guide when a chip is turned on in an empty project', async () => {
+    await addProject('Demo')
+    await click(chip('decision'))
+    expect(text()).toContain('Nothing saved here yet')
+    expect(text()).not.toContain('No entries of these kinds')
+  })
+
+  it('explains an empty kind filter without showing the welcome guide', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    await click(chip('file-note'))
+    expect(shown()).toEqual([])
+    expect(text()).toContain('No entries of these kinds')
+    expect(text()).not.toContain('Nothing saved here yet')
+  })
+
+  it('shows the empty-project guide, not the kind message, when a chip is on in an empty project', async () => {
+    await addProject('A')
+    await addEntry('Use Postgres')
+    await click(chip('decision'))
+    await addProject('B')
+    await until(() => activeProject() === 'B')
+    expect(text()).toContain('Nothing saved here yet')
+    expect(text()).not.toContain('No entries of these kinds')
+  })
+
+  it('turns the chips off when switching projects, and keeps them off when coming back', async () => {
+    await addProject('A')
+    await addEntry('Use Postgres')
+    await addEntry('Chose Vite', '', 'decision')
+    await click(chip('decision'))
+    expect(shown()).toEqual(['Chose Vite'])
+    await addProject('B')
+    await until(() => activeProject() === 'B')
+    expect(chip('decision').getAttribute('aria-pressed')).toBe('false')
+    await openProject('A')
+    expect(chip('decision').getAttribute('aria-pressed')).toBe('false')
+    expect(shown()).toEqual(['Use Postgres', 'Chose Vite'])
   })
 })
 
