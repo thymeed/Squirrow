@@ -1,4 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  LAST_EXPORT_KEY,
+  FIRST_ENTRY_SEEN_KEY,
+  NUDGE_DISMISSED_KEY,
+  dismissedUntilFrom,
+  readStoredTime,
+  shouldShowBackupNudge,
+  writeStoredTime,
+} from '../core/backup'
 import { buildContext, estimateTokens, selectContext, type Selection } from '../core/inject'
 import { exportJson, exportMarkdown, parseSnapshot } from '../core/portability'
 import { filterByKinds, searchEntries } from '../core/search'
@@ -83,6 +92,9 @@ export function App() {
   const [autoPick, setAutoPick] = useState<AutoPick | null>(null)
   const [editing, setEditing] = useState<Partial<Entry> | null>(null)
   const [notice, setNotice] = useState('')
+  const [lastExportAt, setLastExportAt] = useState(() => readStoredTime(LAST_EXPORT_KEY))
+  const [dismissedUntil, setDismissedUntil] = useState(() => readStoredTime(NUDGE_DISMISSED_KEY))
+  const [firstEntrySeenAt, setFirstEntrySeenAt] = useState(() => readStoredTime(FIRST_ENTRY_SEEN_KEY))
   const applyUpdate = useUpdateReady()
   const searchRef = useRef<HTMLInputElement>(null)
   const importRef = useRef<HTMLInputElement>(null)
@@ -108,6 +120,14 @@ export function App() {
   useEffect(() => {
     setAutoPick(null)
   }, [project?.id, projectEntries])
+
+  // Records the first time entries are seen in this browser. Only written once, so it never moves.
+  useEffect(() => {
+    if (!store.ready || data.entries.length === 0 || firstEntrySeenAt !== null) return
+    const now = Date.now()
+    writeStoredTime(FIRST_ENTRY_SEEN_KEY, now)
+    setFirstEntrySeenAt(now)
+  }, [store.ready, data.entries.length, firstEntrySeenAt])
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
@@ -179,6 +199,20 @@ export function App() {
     }
   }
 
+  // Shared by the sidebar button and the backup reminder, so both record the export.
+  const exportBackup = () => {
+    download('squirrow.json', exportJson(data), 'application/json')
+    const now = Date.now()
+    writeStoredTime(LAST_EXPORT_KEY, now)
+    setLastExportAt(now)
+  }
+
+  const dismissNudge = () => {
+    const until = dismissedUntilFrom(Date.now())
+    writeStoredTime(NUDGE_DISMISSED_KEY, until)
+    setDismissedUntil(until)
+  }
+
   const onImport = async (file: File | undefined) => {
     if (!file) return
     try {
@@ -198,6 +232,14 @@ export function App() {
       </p>
     )
   if (!store.ready) return <p className="loading">Loading...</p>
+
+  const showNudge = shouldShowBackupNudge({
+    now: Date.now(),
+    entryCount: data.entries.length,
+    lastExportAt,
+    firstEntrySeenAt,
+    dismissedUntil,
+  })
 
   return (
     <div className="app">
@@ -234,9 +276,7 @@ export function App() {
           </button>
         )}
         <div className="io">
-          <button onClick={() => download('squirrow.json', exportJson(data), 'application/json')}>
-            ⬇ Export JSON
-          </button>
+          <button onClick={exportBackup}>⬇ Export JSON</button>
           <button onClick={() => download('squirrow.md', exportMarkdown(data), 'text/markdown')}>
             ⬇ Export Markdown
           </button>
@@ -258,6 +298,17 @@ export function App() {
       </aside>
 
       <main>
+        {showNudge && (
+          <div className="nudge" role="status">
+            <p>You haven't backed up lately. Export a copy of your data.</p>
+            <div className="row">
+              <button className="primary" onClick={exportBackup}>
+                ⬇ Export
+              </button>
+              <button onClick={dismissNudge}>Dismiss</button>
+            </div>
+          </div>
+        )}
         {!project ? (
           <Welcome hasProject={false} />
         ) : (

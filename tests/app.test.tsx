@@ -2,6 +2,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { FIRST_ENTRY_SEEN_KEY, LAST_EXPORT_KEY } from '../src/core/backup'
 import type { EntryKind } from '../src/core/types'
 import { App } from '../src/ui/App'
 import { useUpdateReady } from '../src/ui/useUpdateReady'
@@ -105,6 +106,7 @@ const taskInput = () => host.querySelector<HTMLInputElement>('input[placeholder=
 
 beforeEach(async () => {
   globalThis.indexedDB = new IDBFactory()
+  localStorage.clear()
   host = document.createElement('div')
   document.body.append(host)
   root = createRoot(host)
@@ -544,5 +546,172 @@ describe('app smoke', () => {
     Object.defineProperty(input, 'files', { value: [new File(['nope'], 'bad.json')] })
     await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
     await until(() => text().includes('File is not valid JSON'))
+  })
+})
+
+describe('backup reminder', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  const banner = () => host.querySelector<HTMLElement>('.nudge')
+  const bannerButton = (label: string) => {
+    const found = [...banner()!.querySelectorAll('button')].find((b) => b.textContent?.includes(label))
+    if (!found) throw new Error(`No banner button "${label}"`)
+    return found
+  }
+  const stubDownload = () => {
+    vi.stubGlobal(
+      'URL',
+      class extends URL {
+        static createObjectURL = () => 'blob:export'
+        static revokeObjectURL = () => {}
+      },
+    )
+    return vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  }
+  /** Unmounts and mounts the app again, like a page reload. Data and localStorage survive. */
+  const reload = async () => {
+    await act(async () => root.unmount())
+    root = createRoot(host)
+    await act(async () => root.render(<App />))
+    await until(() => !text().includes('Loading'))
+  }
+
+  /** Makes entries look first seen `days` ago, then reloads so the app reads the stored time. */
+  const seenAgo = async (days: number) => {
+    localStorage.setItem(FIRST_ENTRY_SEEN_KEY, String(Date.now() - days * DAY))
+    await reload()
+  }
+
+  it('stays hidden for a new user, then shows once the first entry is 15 days old', async () => {
+    await addProject('Demo')
+    expect(localStorage.getItem(FIRST_ENTRY_SEEN_KEY)).toBeNull()
+    await addEntry('Use Postgres')
+    expect(banner()).toBeNull()
+    const firstSeen = localStorage.getItem(FIRST_ENTRY_SEEN_KEY)
+    expect(firstSeen).not.toBeNull()
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 15 * DAY)
+    await reload()
+    expect(banner()!.textContent).toContain("You haven't backed up lately")
+    expect(localStorage.getItem(FIRST_ENTRY_SEEN_KEY)).toBe(firstSeen)
+  })
+
+  it('does not move the first-seen time when the entry is edited', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    const firstSeen = localStorage.getItem(FIRST_ENTRY_SEEN_KEY)
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3 * DAY)
+    await click(button('Edit'))
+    await act(async () =>
+      type(host.querySelector<HTMLInputElement>('input[placeholder="Title"]')!, 'Use Postgres 16'),
+    )
+    await click(button('Save'))
+    await until(() => !host.querySelector('[role="dialog"]'))
+    expect(localStorage.getItem(FIRST_ENTRY_SEEN_KEY)).toBe(firstSeen)
+  })
+
+  it('records the first-seen time for an existing user who has none stored, without a banner', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    localStorage.removeItem(FIRST_ENTRY_SEEN_KEY)
+    await reload()
+    expect(banner()).toBeNull()
+    expect(localStorage.getItem(FIRST_ENTRY_SEEN_KEY)).not.toBeNull()
+  })
+
+  it('writes no first-seen time when there are no entries', async () => {
+    await addProject('Demo')
+    await reload()
+    expect(banner()).toBeNull()
+    expect(localStorage.getItem(FIRST_ENTRY_SEEN_KEY)).toBeNull()
+  })
+
+  it('treats a garbage stored first-seen time as missing and records it again', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    localStorage.setItem(FIRST_ENTRY_SEEN_KEY, 'garbage')
+    await reload()
+    expect(banner()).toBeNull()
+    expect(Number(localStorage.getItem(FIRST_ENTRY_SEEN_KEY))).toBeGreaterThan(0)
+  })
+
+  it('exports from the banner, hides it, and keeps it hidden after a reload', async () => {
+    const clicked = stubDownload()
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    await seenAgo(15)
+    await click(bannerButton('Export'))
+    expect(clicked).toHaveBeenCalledOnce()
+    expect(banner()).toBeNull()
+    expect(localStorage.getItem(LAST_EXPORT_KEY)).not.toBeNull()
+    await reload()
+    expect(banner()).toBeNull()
+  })
+
+  it('hides when Export JSON in the sidebar is used', async () => {
+    stubDownload()
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    await seenAgo(15)
+    expect(banner()).not.toBeNull()
+    await click(button('Export JSON'))
+    expect(banner()).toBeNull()
+  })
+
+  it('does not count Export Markdown as a backup', async () => {
+    stubDownload()
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    await seenAgo(15)
+    await click(button('Export Markdown'))
+    expect(banner()).not.toBeNull()
+    expect(localStorage.getItem(LAST_EXPORT_KEY)).toBeNull()
+  })
+
+  it('records no export time when the download fails', async () => {
+    vi.stubGlobal(
+      'URL',
+      class extends URL {
+        static createObjectURL = () => {
+          throw new Error('blocked')
+        }
+        static revokeObjectURL = () => {}
+      },
+    )
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    await seenAgo(15)
+    expect(banner()).not.toBeNull()
+    const expected = (e: ErrorEvent) => e.preventDefault()
+    window.addEventListener('error', expected)
+    try {
+      await click(button('Export JSON'))
+    } finally {
+      window.removeEventListener('error', expected)
+    }
+    expect(localStorage.getItem(LAST_EXPORT_KEY)).toBeNull()
+    expect(banner()).not.toBeNull()
+  })
+
+  it('hides on Dismiss for seven days, then shows again', async () => {
+    const start = Date.now()
+    const at = (days: number) => vi.spyOn(Date, 'now').mockReturnValue(start + days * DAY)
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    await seenAgo(15)
+    await click(bannerButton('Dismiss'))
+    expect(banner()).toBeNull()
+    at(6)
+    await reload()
+    expect(banner()).toBeNull()
+    at(8)
+    await reload()
+    expect(banner()).not.toBeNull()
+  })
+
+  it('shows again when the last export is more than 14 days old', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    localStorage.setItem(LAST_EXPORT_KEY, String(Date.now() - 15 * DAY))
+    await reload()
+    expect(banner()).not.toBeNull()
   })
 })
