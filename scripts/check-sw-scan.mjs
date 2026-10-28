@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -14,7 +14,14 @@ async function precachedUrls(swSource, files) {
   }
   const caches = {
     open: async () => ({
-      addAll: async (urls) => urls.forEach((url) => cached.add(url)),
+      // Like the real addAll, reject on the first URL that has no file, which fails the install.
+      addAll: async (urls) => {
+        for (const url of urls) {
+          const path = new URL(url, 'https://app.test').pathname
+          if (files[path] === undefined) throw new TypeError(`${path} is precached but not in dist`)
+        }
+        urls.forEach((url) => cached.add(url))
+      },
     }),
   }
   const fetch = async (url) => {
@@ -30,7 +37,10 @@ async function precachedUrls(swSource, files) {
   return cached
 }
 
-/** The files under /assets/ that the worker's scan would not precache. `files` maps request paths to text or bytes. */
+/**
+ * The files under /assets/ that the worker's scan would not precache. `files` maps request paths to text or bytes.
+ * Rejects with a TypeError when the real install would fail, because a precached URL is not in `files`.
+ */
 export async function findUnprecached({ swSource, files }) {
   const precached = await precachedUrls(swSource, files)
   return Object.keys(files)
@@ -54,10 +64,22 @@ function distFiles(dir, root = dir) {
 
 // Runs only when executed directly, not when a test imports findUnprecached.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  for (const path of ['dist', 'dist/sw.js']) {
+    if (!existsSync(path)) {
+      console.error(`${path} not found, run npm run build first`)
+      process.exit(1)
+    }
+  }
   const files = distFiles('dist')
   files['/'] = files['/index.html']
   const swSource = readFileSync(join('dist', 'sw.js'), 'utf8')
-  const missing = await findUnprecached({ swSource, files })
+  let missing
+  try {
+    missing = await findUnprecached({ swSource, files })
+  } catch (error) {
+    console.error(`install would fail: ${error.message}`)
+    process.exit(1)
+  }
   if (missing.length > 0) {
     for (const path of missing) {
       console.error(

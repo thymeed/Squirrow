@@ -9,6 +9,8 @@ const realistic = (): Record<string, string> => ({
   '/assets/o200k_base-CCCC3333.js': 'export const n = 1',
   '/assets/index-BBBB2222.css': 'body{--s:url(/assets/scenery-DDDD4444.svg)}',
   '/assets/scenery-DDDD4444.svg': '<svg></svg>',
+  '/manifest.webmanifest': '{"name":"Squirrow"}',
+  '/icon-192.png': 'png',
 })
 
 /** The same build without its o200k chunk, for tests that put a different chunk in its place. */
@@ -55,5 +57,19 @@ describe('service worker scan check', () => {
       '/stray-CCCC3333.js': 'export const s = 1',
     }
     expect(await check(files)).toEqual([])
+  })
+
+  it('fails the install when a scanned file references an /assets/ URL missing from dist', async () => {
+    const files = {
+      ...realistic(),
+      '/assets/index-AAAA1111.js': 'x("/assets/ghost.js"); import(`./o200k_base-CCCC3333.js`)',
+    }
+    await expect(check(files)).rejects.toThrow(new TypeError('/assets/ghost.js is precached but not in dist'))
+  })
+
+  it('fails the install when /icon-192.png is missing from dist', async () => {
+    const files = realistic()
+    delete files['/icon-192.png']
+    await expect(check(files)).rejects.toThrow(new TypeError('/icon-192.png is precached but not in dist'))
   })
 })
