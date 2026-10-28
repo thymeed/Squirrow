@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "check:sw": "node scripts/check-sw-scan.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "format": "prettier --write .",
