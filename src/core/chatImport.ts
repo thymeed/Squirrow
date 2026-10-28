@@ -81,6 +81,38 @@ const SECTION_HINTS: readonly { kind: EntryKind; match: RegExp }[] = [
 ]
 
 /**
+ * Words whose dot does not end a sentence, such as "Dr. Smith", plus single capital initials such as "J.". "e.g."
+ * and "i.e." never end one, in lower or capital form, so both forms are listed. "etc." needs no entry: a sentence
+ * end must be followed by a capital, digit, quote or bracket, so "etc. the" never ends one.
+ */
+const NOT_SENTENCE_END: ReadonlySet<string> = new Set([
+  'Dr',
+  'Mr',
+  'Mrs',
+  'Ms',
+  'vs',
+  'approx',
+  'No',
+  'e.g',
+  'i.e',
+  'E.g',
+  'I.e',
+])
+
+/**
+ * A sentence end: ., ! or ? with any closing quote, bracket or emphasis mark after it, then whitespace and a capital,
+ * digit, quote, opening bracket, or the end of the text. "3.5", "Node.js" and "config.ts" have no space after the
+ * dot, so they do not match.
+ */
+const SENTENCE_END = /[.!?]["')\]*_”’]*(?=\s+["'(\[“‘\p{Lu}\p{Nd}]|$)/gu
+
+/**
+ * Italic text, *word*, read as CommonMark does: the opening mark is followed by a non-space and the closing mark is
+ * preceded by one. A mark inside a word, such as a*b, does not count, and neither does "2 * 3 * 4".
+ */
+const ITALIC = /(?<![\p{L}\p{N}*])\*(?![\s*])([^*]*?[^\s*])\*(?![\p{L}\p{N}*])/gu
+
+/**
  * Input past this many characters (after line endings are normalized) is cut at the last line break before
  * the cap, so a huge paste stays fast and no line is read half way.
  */
@@ -117,26 +149,72 @@ type LineKind = 'none' | 'heading' | 'item' | 'continuation' | 'text' | 'fence'
 
 const stripBold = (s: string): string => s.replace(/\*\*(.+?)\*\*|__(.+?)__/g, '$1$2')
 
+/** Removes the bold and italic marks from a title. The body keeps them. */
+const stripEmphasis = (s: string): string => stripBold(s).replace(ITALIC, '$1')
+
 /** A line that is only list or rule characters, such as "-" or "* * *". */
 const isEmptyLine = (s: string): boolean => /^[\s\-*_+.]*$/.test(s)
 
-/** Cuts a long title at a sentence end or a word break, and marks the cut with an ellipsis. */
-function cutTitle(text: string): string {
+/** A line that joins the text run above it. Blank, rule, nested bullet and fence lines do not. */
+const isRunText = (line: string | null | undefined): line is string =>
+  typeof line === 'string' && line.trim() !== '' && !isEmptyLine(line) && !BULLET.test(line)
+
+/** Whether the mark at `at` is a dot after a word from NOT_SENTENCE_END, or after a single capital letter. */
+function isAbbreviation(text: string, at: number): boolean {
+  if (text.charAt(at) !== '.') return false
+  let start = at
+  while (start > 0 && !/\s/.test(text.charAt(start - 1))) start--
+  const word = text.slice(start, at).replace(/^["'([*_“‘]+/, '')
+  return /^\p{Lu}$/u.test(word) || NOT_SENTENCE_END.has(word)
+}
+
+/** The end of the first sentence of a text, after its mark. The text's length when it has no sentence end. */
+function firstSentenceEnd(text: string): number {
+  for (const m of text.matchAll(SENTENCE_END)) {
+    const at = m.index ?? 0
+    if (!isAbbreviation(text, at)) return at + m[0].length
+  }
+  return text.length
+}
+
+/** The index of the last sentence mark that starts before `limit`, or -1. Abbreviation dots do not count. */
+function lastSentenceMark(text: string, limit: number): number {
+  let found = -1
+  for (const m of text.matchAll(SENTENCE_END)) {
+    const at = m.index ?? 0
+    if (at >= limit) break
+    if (!isAbbreviation(text, at)) found = at
+  }
+  return found
+}
+
+/**
+ * Cuts a long title at a sentence end or a word break, and marks the cut with an ellipsis. A wrapped run uses the
+ * sentence rule for its cut, so the cut and the first sentence agree. A single line keeps its old cut.
+ */
+function cutTitle(text: string, wrapped: boolean): string {
   if (text.length <= TITLE_MAX) return text
   const head = text.slice(0, TITLE_MAX)
-  const sentence = [...head.matchAll(/[.!?](?=\s)/g)].pop()
-  const at = sentence?.index ?? 0
+  const at = wrapped
+    ? lastSentenceMark(text, TITLE_MAX)
+    : ([...head.matchAll(/[.!?](?=\s)/g)].pop()?.index ?? 0)
   if (at >= 20) return `${head.slice(0, at).trimEnd()}…`
   const space = head.lastIndexOf(' ')
   if (space >= 20) return `${head.slice(0, space).replace(/[\s,;:-]+$/, '')}…`
   return `${head.slice(0, TITLE_MAX - 1).trimEnd()}…`
 }
 
-/** A title and body from a first line. A long line is cut for the title, and the whole line stays in the body. */
-function titled(head: string, rest: string): Pick<Draft, 'title' | 'body'> {
-  const title = stripBold(head).trim()
-  if (title.length <= TITLE_MAX) return { title, body: rest }
-  return { title: cutTitle(title), body: [head, rest].filter(Boolean).join('\n') }
+/**
+ * A title and body from a line of text. A joined run (`wrapped`) takes its first sentence as the title. A long
+ * title is cut, and the whole text stays in the body. A single sentence that fits is the title, with an empty body.
+ */
+function titled(text: string, rest: string, wrapped: boolean): Pick<Draft, 'title' | 'body'> {
+  const end = wrapped ? firstSentenceEnd(text) : text.length
+  const title = stripEmphasis(text.slice(0, end)).trim()
+  const whole = end >= text.length
+  if (title.length <= TITLE_MAX)
+    return { title, body: whole ? rest : [text, rest].filter(Boolean).join('\n') }
+  return { title: cutTitle(title, wrapped), body: [text, rest].filter(Boolean).join('\n') }
 }
 
 /** Joins a first line with following lines. The lines lose their shared indent, so nesting still shows. */
@@ -147,17 +225,28 @@ function joinLines(first: string, rest: string[]): string {
   return [first, ...rest.map((l) => l.slice(shift))].join('\n').trim()
 }
 
-/** A bullet's or a paragraph's title and body. "Title: rest" splits at a colon followed by a space when the label is short. */
-function splitItem(head: string, rest: string[]): Pick<Draft, 'title' | 'body'> {
-  const label = LABEL.exec(head)
+/**
+ * A bullet's or a paragraph's title and body, from its lines. The first line is not blank. The first run of text
+ * lines is joined with single spaces. A blank, rule, nested bullet or fence line ends the run, and the lines after
+ * it go to the body as they are. "Title: rest" splits at a colon followed by a space when the label is short.
+ */
+function splitItem(lines: readonly (string | null)[]): Pick<Draft, 'title' | 'body'> {
+  let end = 1
+  while (end < lines.length && isRunText(lines[end])) end++
+  const text = lines
+    .slice(0, end)
+    .map((l) => (l ?? '').trim())
+    .join(' ')
+  const rest = lines.slice(end).filter((l): l is string => l !== null)
+  const label = LABEL.exec(text)
   if (label) {
-    const name = stripBold(label[1] ?? '').trim()
+    const name = stripEmphasis(label[1] ?? '').trim()
     const after = label[2] ?? ''
     if (name && name.length <= LABEL_MAX) {
       return { title: name, body: joinLines(after.trim(), rest) }
     }
   }
-  return titled(head, joinLines('', rest))
+  return titled(text, joinLines('', rest), end > 1)
 }
 
 function guessKind(text: string, sectionTitle: string): EntryKind {
@@ -248,18 +337,20 @@ function unwrapFence(text: string): string {
  *   plain paragraph (no bullets or fences in that section) becomes one entry, titled by the heading.
  * - A loose paragraph is a run of lines that are not blank, headings, bullets or fences, such as an intro
  *   sentence. A blank line, heading, bullet, fence or rule line such as "---" ends it. Each paragraph
- *   becomes one entry, in input order. Its first line is the title and the rest is the body, split and
- *   guessed the same way as a bullet. Indented lines under a bullet stay in that bullet's body.
- * - Each top-level bullet (-, *, +, 1. or 1)) becomes one entry. Its first line is the title. Indented
- *   lines and nested bullets go to its body. "Title: rest" splits at a colon followed by a space when the label is short.
+ *   becomes one entry, in input order. Its lines are joined with single spaces, and the title is its first
+ *   sentence. Split and guessed the same way as a bullet. Indented lines under a bullet stay in that bullet's body.
+ * - Each top-level bullet (-, *, +, 1. or 1)) becomes one entry. Its first line is joined with the plain text lines
+ *   right after it and titled like a paragraph. Nested bullets and fences go to its body, and a fence is a snippet.
+ *   "Title: rest" splits at a colon followed by a space when the label is short.
  * - A fenced code block becomes a snippet, whose body is exactly the code. Its title is the text line
  *   just above it (if short), else the section heading, else "<language> snippet", else "Snippet".
  *   That line is used as the title, so it is not also a paragraph. A fence indented inside a bullet is a
  *   snippet too, and it is not part of the bullet's body. An unclosed fence runs to the end of the input.
  * - A paste that is one fence with no language, or with md, markdown or text, is read as the text inside it,
  *   as in unwrapFence. That happens first, before the caps below, so the caps apply to the text inside.
- * - Titles longer than 80 characters are cut at a sentence end or word break, with an ellipsis. The
- *   full first line goes to the body, so nothing is lost.
+ * - The lines of a paragraph or bullet are joined first. A joined run's title is its first sentence; a single
+ *   line's title is the whole line. A title over 80 characters is cut at a sentence end or word break, with an
+ *   ellipsis. When the title is not the whole text, the details hold the full joined text.
  * - Bullets with no text are skipped. Input past MAX_INPUT_CHARS is cut at the last line break before the
  *   cap, and drafts past MAX_DRAFTS are dropped. Either one sets `truncated`, so the caller can say so.
  * - If no whole line fits in the cap, the paste has text, and it is past the cap, nothing is read and
@@ -287,7 +378,8 @@ export function parseChatSummaryDetailed(text: string): ChatSummary {
   // The paragraph being read, and the closed paragraphs of the section that no bullet or fence has settled yet.
   let paragraph: string[] = []
   let loose: string[][] = []
-  let item: { head: string; lines: string[] } | null = null
+  // A null line marks a fence inside the open bullet, which ends the text run there.
+  let item: { head: string; lines: (string | null)[] } | null = null
   // Snippets from fences indented inside the open bullet. They come right after that bullet.
   let nested: Draft[] = []
   // The last non-blank line. Blank lines do not change it, and blankSince says whether one came after.
@@ -297,9 +389,9 @@ export function parseChatSummaryDetailed(text: string): ChatSummary {
   const flushItem = () => {
     if (!item) return
     const all = [item.head, ...item.lines]
-    const first = all.findIndex((l) => !isEmptyLine(l))
+    const first = all.findIndex((l) => l !== null && !isEmptyLine(l))
     if (first !== -1) {
-      const { title, body } = splitItem(all[first]!.trim(), all.slice(first + 1))
+      const { title, body } = splitItem(all.slice(first))
       add({ kind: guessKind(`${title}\n${body}`, sectionTitle), title, body })
     }
     nested.forEach(add)
@@ -314,7 +406,7 @@ export function parseChatSummaryDetailed(text: string): ChatSummary {
 
   const flushLoose = () => {
     for (const lines of loose) {
-      const { title, body } = splitItem(lines[0]!.trim(), lines.slice(1))
+      const { title, body } = splitItem(lines)
       add({ kind: guessKind(`${title}\n${body}`, sectionTitle), title, body })
     }
     loose = []
@@ -330,7 +422,7 @@ export function parseChatSummaryDetailed(text: string): ChatSummary {
   const flushSection = () => {
     closeParagraph()
     if (sectionTitle && !sectionHasBlock && loose.length === 1) {
-      const { title, body } = titled(sectionTitle, loose[0]!.join('\n').trim())
+      const { title, body } = titled(sectionTitle, loose[0]!.map((l) => l.trim()).join(' '), false)
       add({ kind: guessKind(`${title}\n${body}`, sectionTitle), title, body })
       loose = []
     } else {
@@ -365,7 +457,7 @@ export function parseChatSummaryDetailed(text: string): ChatSummary {
       }
       const body = code.join('\n').trimEnd()
       // The title is the nearest text line above the fence, if it is short. Blank lines are skipped.
-      const above = last.kind === 'text' ? stripBold(last.text).trim() : ''
+      const above = last.kind === 'text' ? stripEmphasis(last.text).trim() : ''
       const useAbove = above !== '' && above.length <= TITLE_MAX
       closeParagraph()
       const owner = loose[loose.length - 1]
@@ -377,6 +469,7 @@ export function parseChatSummaryDetailed(text: string): ChatSummary {
       }
       const title = useAbove ? above : sectionTitle || (lang ? `${lang} snippet` : 'Snippet')
       startBlock()
+      if (item) item.lines.push(null)
       if (body.trim()) {
         const snippet: Draft = { kind: 'snippet', title, body }
         if (item) nested.push(snippet)

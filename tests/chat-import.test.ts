@@ -74,15 +74,15 @@ describe('parseChatSummary: bullets', () => {
       '- Stack summary\n  Vite for the build.\n  - sub one\n  - sub two\n- Next',
     )
     expect(rows(drafts)).toEqual([
-      ['fact', 'Stack summary', 'Vite for the build.\n- sub one\n- sub two'],
+      ['fact', 'Stack summary Vite for the build.', '- sub one\n- sub two'],
       ['fact', 'Next', ''],
     ])
   })
 
-  it('keeps a lazy line right after a bullet in its body, and a blank line ends the bullet', () => {
+  it('keeps a lazy line right after a bullet in the title run, and a blank line ends the bullet', () => {
     const drafts = parseChatSummary('- Vite\nfast startup\n\nLoose words after a blank line')
     expect(rows(drafts)).toEqual([
-      ['fact', 'Vite', 'fast startup'],
+      ['fact', 'Vite fast startup', ''],
       ['fact', 'Loose words after a blank line', ''],
     ])
   })
@@ -136,7 +136,7 @@ describe('parseChatSummary: bullets', () => {
     expect(draft!.title.endsWith('…')).toBe(true)
     expect(draft!.title.length).toBeLessThanOrEqual(81)
     expect(line.startsWith(draft!.title.slice(0, -1))).toBe(true)
-    expect(draft!.body).toBe(`${line}\nRevisit in spring.`)
+    expect(draft!.body).toBe(`${line} Revisit in spring.`)
   })
 })
 
@@ -468,7 +468,7 @@ describe('parseChatSummary: loose paragraphs', () => {
 
   it('gives a heading over one plain paragraph exactly one entry', () => {
     expect(rows(parseChatSummary('## Setup\nRun the dev server.\nThen open the page.'))).toEqual([
-      ['fact', 'Setup', 'Run the dev server.\nThen open the page.'],
+      ['fact', 'Setup', 'Run the dev server. Then open the page.'],
     ])
   })
 
@@ -489,7 +489,7 @@ describe('parseChatSummary: loose paragraphs', () => {
     expect(
       rows(parseChatSummary('- Vite\n  Fast startup.\n\n  Still the same bullet.\n\nLoose end.')),
     ).toEqual([
-      ['fact', 'Vite', 'Fast startup.\n\nStill the same bullet.'],
+      ['fact', 'Vite Fast startup.', 'Still the same bullet.'],
       ['fact', 'Loose end.', ''],
     ])
   })
@@ -497,6 +497,222 @@ describe('parseChatSummary: loose paragraphs', () => {
   it('splits a loose paragraph at a short label, like a bullet', () => {
     expect(rows(parseChatSummary('Note: the build runs on CI.'))).toEqual([
       ['fact', 'Note', 'the build runs on CI.'],
+    ])
+  })
+})
+
+describe('parseChatSummary: hard-wrapped text', () => {
+  it('joins a three-line paragraph into one draft, titled by its first sentence', () => {
+    expect(
+      rows(
+        parseChatSummary(
+          'We should model the physics first.\nThat means CFD of a Coanda jet,\nthen a reduced-order model.',
+        ),
+      ),
+    ).toEqual([
+      [
+        'fact',
+        'We should model the physics first.',
+        'We should model the physics first. That means CFD of a Coanda jet, then a reduced-order model.',
+      ],
+    ])
+  })
+
+  it('titles the Coanda example by its first sentence, and keeps the whole paragraph in the details', () => {
+    const input =
+      'Model the physics from first principles. That means CFD of a Coanda jet,\nthen a reduced-order model, then a controller.'
+    expect(rows(parseChatSummary(input))).toEqual([
+      [
+        'fact',
+        'Model the physics from first principles.',
+        'Model the physics from first principles. That means CFD of a Coanda jet, then a reduced-order model, then a controller.',
+      ],
+    ])
+  })
+
+  it('keeps two paragraphs separated by a blank line as two drafts', () => {
+    expect(
+      rows(parseChatSummary('First part of the plan\nstill going.\n\nSecond part of the plan\nalso going.')),
+    ).toEqual([
+      ['fact', 'First part of the plan still going.', ''],
+      ['fact', 'Second part of the plan also going.', ''],
+    ])
+  })
+
+  it('shows a bold word in the first sentence without asterisks in the title', () => {
+    expect(rows(parseChatSummary('We use **Postgres** for storage.\nIt is fast.'))).toEqual([
+      ['fact', 'We use Postgres for storage.', 'We use **Postgres** for storage. It is fast.'],
+    ])
+  })
+
+  it('cuts a first sentence longer than 80 characters by the usual rule, and keeps everything in the details', () => {
+    const first =
+      'We decided to split the service into three deployable units because the billing path must stay independent of reporting'
+    const [draft] = parseChatSummary(`${first}.\nSecond sentence here.`)
+    expect(draft!.kind).toBe('decision')
+    expect(draft!.title.endsWith('…')).toBe(true)
+    expect(draft!.title.length).toBeLessThanOrEqual(81)
+    expect(first.startsWith(draft!.title.slice(0, -1))).toBe(true)
+    expect(draft!.body).toBe(`${first}. Second sentence here.`)
+  })
+
+  it('does not cut a long first sentence at an abbreviation dot', () => {
+    const first =
+      'We asked the reviewers and Dr. Smith about the whole plan before the release date and the budget'
+    const [draft] = parseChatSummary(`${first}.\nNext step.`)
+    expect(draft!.title.endsWith('…')).toBe(true)
+    expect(draft!.title.startsWith('We asked the reviewers and Dr. Smith')).toBe(true)
+    expect(draft!.body).toBe(`${first}. Next step.`)
+  })
+
+  it.each<[string, string, string]>([
+    [
+      '"Dr." before a name',
+      'Dr. Smith reviewed the plan.\nThen we shipped it.',
+      'Dr. Smith reviewed the plan.',
+    ],
+    ['a decimal', 'Version 3.5 ships soon.\nMore later.', 'Version 3.5 ships soon.'],
+    ['a dotted tech name', 'Use Node.js for the server.\nMore later.', 'Use Node.js for the server.'],
+    ['a file name', 'Edit config.ts first.\nThen run it.', 'Edit config.ts first.'],
+    [
+      '"e.g." before a lowercase word',
+      'We use tools, e.g. linters.\nMore later.',
+      'We use tools, e.g. linters.',
+    ],
+    ['a single capital initial', 'Ask J. Smith about it.\nDone then.', 'Ask J. Smith about it.'],
+    ['"vs."', 'Compare vs. the old build.\nDone then.', 'Compare vs. the old build.'],
+    ['"approx." before a number', 'It costs approx. 40 units.\nDone then.', 'It costs approx. 40 units.'],
+    [
+      '"e.g." before a capital',
+      'Use a bundler, e.g. Vite, for the build.\nIt is fast.',
+      'Use a bundler, e.g. Vite, for the build.',
+    ],
+    [
+      '"e.g." in a wrapped bullet',
+      '- Pick one store, e.g. IndexedDB, for\n  the drafts.',
+      'Pick one store, e.g. IndexedDB, for the drafts.',
+    ],
+    [
+      '"i.e." before a capital',
+      'Use a bundler, i.e. Vite, for the build.\nIt is fast.',
+      'Use a bundler, i.e. Vite, for the build.',
+    ],
+    ['a capital "E.g." at a sentence start', 'E.g. Vite is fast.\nIt is small.', 'E.g. Vite is fast.'],
+  ])('does not end the first sentence at %s', (_name, input, title) => {
+    expect(parseChatSummary(input).map((d) => d.title)).toEqual([title])
+  })
+
+  it.each<[string, string, string, string]>([
+    ['!', 'Wow! Ship it now.\nThen test it.', 'Wow!', 'Wow! Ship it now. Then test it.'],
+    ['?', 'Is it ready?\nNot yet.', 'Is it ready?', 'Is it ready? Not yet.'],
+    [
+      'a closing quote after the period',
+      'He said "Go now." Then\nleft.',
+      'He said "Go now."',
+      'He said "Go now." Then left.',
+    ],
+    [
+      'a closing paren after the period',
+      'It works (mostly.) Then\nleft.',
+      'It works (mostly.)',
+      'It works (mostly.) Then left.',
+    ],
+    ['a bold mark after the period', '**Bold.** Next part\nhere.', 'Bold.', '**Bold.** Next part here.'],
+    [
+      'a real end after "e.g."',
+      'Use a bundler, e.g. Vite. It is fast.\nIt is small.',
+      'Use a bundler, e.g. Vite.',
+      'Use a bundler, e.g. Vite. It is fast. It is small.',
+    ],
+    [
+      'a real end after "i.e."',
+      'Use a bundler, i.e. Vite. It is fast.\nIt is small.',
+      'Use a bundler, i.e. Vite.',
+      'Use a bundler, i.e. Vite. It is fast. It is small.',
+    ],
+  ])('ends the first sentence at %s', (_name, input, title, body) => {
+    expect(rows(parseChatSummary(input))).toEqual([['fact', title, body]])
+  })
+
+  it('strips *italic* from the title and keeps it in the details', () => {
+    expect(rows(parseChatSummary('We use *Vite* for builds.\nIt is fast.'))).toEqual([
+      ['fact', 'We use Vite for builds.', 'We use *Vite* for builds. It is fast.'],
+    ])
+    expect(rows(parseChatSummary('- *Vite* is fast'))).toEqual([['fact', 'Vite is fast', '']])
+  })
+
+  it('strips *italic* from a label name and from the text line above a fence', () => {
+    expect(rows(parseChatSummary('- *Note*: italic label'))).toEqual([['fact', 'Note', 'italic label']])
+    expect(rows(parseChatSummary('*Run this*\n```sh\nx\n```'))).toEqual([['snippet', 'Run this', 'x']])
+  })
+
+  it.each<[string, string]>([
+    ['a multiplication', '- 2 * 3 * 4 is the total'],
+    ['a lone star', '- Use * for every match'],
+    ['a glob without a closing mate', '- Edit *.ts files'],
+    ['stars inside words', '- a*b and c*d'],
+    ['snake_case words', '- snake_case_words stay as they are'],
+  ])('leaves the title alone for %s', (_name, input) => {
+    expect(parseChatSummary(input)[0]!.title).toBe(input.slice(2))
+  })
+
+  it('joins the continuation lines of a wrapped bullet into its title, and the details hold the full text', () => {
+    expect(
+      rows(parseChatSummary('- Use Vite for the dev server.\n  It keeps the build small.\n- Next')),
+    ).toEqual([
+      ['fact', 'Use Vite for the dev server.', 'Use Vite for the dev server. It keeps the build small.'],
+      ['fact', 'Next', ''],
+    ])
+  })
+
+  it('keeps the nested bullets of a wrapped bullet on their own lines in the details', () => {
+    expect(
+      rows(parseChatSummary('- Stack summary.\n  Vite for the build.\n  - sub one\n  - sub two\n- Next')),
+    ).toEqual([
+      ['fact', 'Stack summary.', 'Stack summary. Vite for the build.\n- sub one\n- sub two'],
+      ['fact', 'Next', ''],
+    ])
+  })
+
+  it('takes a fence out of a wrapped bullet, and the text on each side stays apart', () => {
+    expect(
+      rows(parseChatSummary('- First line\n  second line\n  ```sh\n  npm test\n  ```\n  after the fence')),
+    ).toEqual([
+      ['fact', 'First line second line', 'after the fence'],
+      ['snippet', 'sh snippet', 'npm test'],
+    ])
+  })
+
+  it('gives a one-line paragraph and a one-line bullet the same result as before', () => {
+    expect(rows(parseChatSummary('Vite is fast. It is small.\n\n- Vite is fast. It is small.'))).toEqual([
+      ['fact', 'Vite is fast. It is small.', ''],
+      ['fact', 'Vite is fast. It is small.', ''],
+    ])
+    const long =
+      'Model the physics from first principles. That means CFD of a Coanda jet, then a reduced-order model, then a controller.'
+    expect(rows(parseChatSummary(long))).toEqual([['fact', 'Model the physics from first principles…', long]])
+  })
+
+  it('titles a short wrapped single sentence by the whole joined text, with empty details', () => {
+    expect(rows(parseChatSummary('Keep it short\nand simple.'))).toEqual([
+      ['fact', 'Keep it short and simple.', ''],
+    ])
+  })
+
+  it('reads CRLF line endings in wrapped text the same as LF', () => {
+    const lf =
+      'Model the physics from first principles. That means CFD of a Coanda jet,\nthen a reduced-order model.\n- Use Vite for the dev server.\n  It keeps the build small.\n'
+    expect(rows(parseChatSummary(lf.replace(/\n/g, '\r\n')))).toEqual(rows(parseChatSummary(lf)))
+    expect(rows(parseChatSummary(lf))[1]).toEqual([
+      'fact',
+      'Use Vite for the dev server.',
+      'Use Vite for the dev server. It keeps the build small.',
+    ])
+  })
+
+  it('splits the label of a wrapped bullet, and the details hold the joined rest', () => {
+    expect(rows(parseChatSummary('- **Note:** first part\n  second part'))).toEqual([
+      ['fact', 'Note', 'first part second part'],
     ])
   })
 })
@@ -672,11 +888,11 @@ describe('parseChatSummaryDetailed: caps', () => {
     const lines = Array.from({ length: 30_000 }, (_, i) => `  line ${i}`)
     const input = `- head\n${lines.join('\n')}`
     const { drafts } = parseChatSummaryDetailed(input)
-    // The whole lines that end before the cap, after the head line. Their indent is removed in the body.
+    // The whole lines that end before the cap, after the head line. They join the head into one text run.
     const cutAt = input.lastIndexOf('\n', MAX_INPUT_CHARS)
     const kept = input.slice(0, cutAt).split('\n').slice(1)
     expect(drafts).toHaveLength(1)
-    expect(drafts[0]!.body).toBe(kept.map((l) => l.slice(2)).join('\n'))
+    expect(drafts[0]!.body).toBe(['head', ...kept.map((l) => l.trim())].join(' '))
     expect(input.slice(cutAt + 1).startsWith(lines[kept.length]!)).toBe(true)
   })
 
@@ -687,7 +903,8 @@ describe('parseChatSummaryDetailed: caps', () => {
     const { drafts, truncated } = parseChatSummaryDetailed(input)
     expect(truncated).toBe('chars')
     expect(drafts).toHaveLength(1)
-    expect(drafts[0]!.body).toBe(run)
+    // The last whole line is a lazy line under the bullet, so it joins the bullet's text run.
+    expect(drafts[0]!.body).toBe(`kept ${run}`)
   })
 
   it('reports drafts first when both caps are hit', () => {
@@ -713,7 +930,8 @@ describe('parseChatSummaryDetailed: caps', () => {
     expect(truncated).toBe('chars')
     expect(drafts.length).toBeGreaterThan(0)
     expect(drafts.length).toBeLessThan(MAX_DRAFTS)
-    expect(drafts.at(-1)!.title).toBe(`item ${drafts.length - 1}`)
+    // Each entry's text run starts with its item number, and the rest of the run is cut from the title.
+    expect(drafts.at(-1)!.title.startsWith(`item ${drafts.length - 1} note`)).toBe(true)
   })
 
   it('refuses a single line longer than the cap, with no drafts and the line flag', () => {
