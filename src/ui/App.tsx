@@ -17,6 +17,7 @@ import {
   type TokenCounter,
 } from '../core/inject'
 import { exportJson, exportMarkdown, parseSnapshot } from '../core/portability'
+import { resolvePick, sameName } from '../core/picks'
 import { filterByKinds, searchEntries } from '../core/search'
 import { useStore } from '../core/store'
 import {
@@ -29,6 +30,7 @@ import {
   type Entry,
   type EntryKind,
   type Id,
+  type SavedPick,
 } from '../core/types'
 import { useUpdateReady } from './useUpdateReady'
 
@@ -86,6 +88,8 @@ function Welcome({ hasProject }: { hasProject: boolean }) {
   )
 }
 
+const entriesText = (n: number) => `${n} ${n === 1 ? 'entry' : 'entries'}`
+
 function download(name: string, text: string, type: string) {
   const a = document.createElement('a')
   a.href = URL.createObjectURL(new Blob([text], { type }))
@@ -110,6 +114,7 @@ export function App() {
   const [task, setTask] = useState('')
   const [autoPick, setAutoPick] = useState<AutoPick | null>(null)
   const [editing, setEditing] = useState<Partial<Entry> | null>(null)
+  const [pickName, setPickName] = useState('')
   const [notice, setNotice] = useState('')
   // Null until the tokenizer loads, and stays null if it fails. Then the 4-character estimate is used.
   const [counter, setCounter] = useState<TokenCounter | null>(null)
@@ -130,6 +135,10 @@ export function App() {
     [projectEntries, kinds, query],
   )
   const chosen = projectEntries.filter((e) => selected.has(e.id))
+  const picks = useMemo(
+    () => (store.data.savedPicks ?? []).filter((p) => p.projectId === project?.id),
+    [store.data.savedPicks, project?.id],
+  )
   const context = project ? buildContext(project, chosen) : ''
   const count: TokenCounter = counter ?? estimateTokens
   const tokenCount = useMemo(() => count(context), [count, context])
@@ -221,6 +230,41 @@ export function App() {
     const selection = selectContext(project, candidates, task, budget, pinned, count)
     setSelected(new Set(selection.included.map((e) => e.id)))
     setAutoPick({ selection, unticked, total: projectEntries.length, budget, exact: counter !== null })
+  }
+
+  // Saves the ticked entries. Ticked entries that were deleted are not in `chosen`, so they are not saved.
+  const savePick = async () => {
+    if (!project) return
+    try {
+      const { pick, replaced } = await store.savePick(
+        project.id,
+        pickName,
+        chosen.map((e) => e.id),
+      )
+      setPickName('')
+      setNotice(`${replaced ? 'Updated' : 'Saved'} "${pick.name}" with ${entriesText(pick.entryIds.length)}.`)
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Couldn't save the pick")
+    }
+  }
+
+  // Loading is a manual choice: the loaded entries are hand-ticked (so Auto-pick keeps them), and
+  // the rest have no hand record, so Auto-pick can still choose them. Deleted entries are skipped.
+  const loadPick = (pick: SavedPick) => {
+    const { entryIds, missing } = resolvePick(pick, projectEntries)
+    if (entryIds.length === 0) {
+      setNotice(
+        missing
+          ? `All ${entriesText(missing)} in "${pick.name}" ${missing === 1 ? 'was' : 'were'} deleted, so nothing was ticked.`
+          : `"${pick.name}" has no entries, so nothing was ticked.`,
+      )
+      return
+    }
+    setAutoPick(null)
+    setSelected(new Set(entryIds))
+    setHand(new Map(entryIds.map((id) => [id, true])))
+    const gone = missing ? ` ${missing} ${missing === 1 ? 'was' : 'were'} missing (deleted).` : ''
+    setNotice(`Loaded ${entriesText(entryIds.length)}.${gone}`)
   }
 
   const copy = async () => {
@@ -520,6 +564,55 @@ export function App() {
                 >
                   Select all
                 </button>
+              </div>
+              <div className="picks">
+                <h3>Saved picks</h3>
+                <form
+                  className="row"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    void savePick()
+                  }}
+                >
+                  <input
+                    type="text"
+                    aria-label="Pick name"
+                    placeholder="Name this pick"
+                    value={pickName}
+                    onChange={(e) => setPickName(e.target.value)}
+                  />
+                  <button type="submit">
+                    {picks.some((p) => sameName(p.name, pickName)) ? 'Update pick' : 'Save pick'}
+                  </button>
+                </form>
+                {picks.some((p) => sameName(p.name, pickName)) && (
+                  <p className="hint">A pick with this name exists here. Saving replaces its entries.</p>
+                )}
+                {picks.length === 0 ? (
+                  <p className="hint">No saved picks in this project yet.</p>
+                ) : (
+                  <ul className="pick-list">
+                    {picks.map((p) => (
+                      <li key={p.id}>
+                        <span>
+                          {p.name} <span className="hint">{entriesText(p.entryIds.length)}</span>
+                        </span>
+                        <div className="row">
+                          <button aria-label={`Load pick ${p.name}`} onClick={() => loadPick(p)}>
+                            Load
+                          </button>
+                          <button
+                            className="danger"
+                            aria-label={`Delete pick ${p.name}`}
+                            onClick={() => confirm(`Delete the pick "${p.name}"?`) && store.removePick(p.id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </section>
           </>

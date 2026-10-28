@@ -342,6 +342,31 @@ main {
     font-size: 0.9rem;
     color: var(--muted);
   }
+  .picks {
+    margin: 16px 0 12px;
+    h3 {
+      margin: 0 0 8px;
+      font-size: 1rem;
+    }
+    form input {
+      flex: 1;
+      min-width: 0;
+    }
+    .pick-list {
+      list-style: none;
+      margin: 8px 0 0;
+      padding: 0;
+      display: grid;
+      gap: 6px;
+      li {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+    }
+  }
   pre {
     background: var(--panel);
     padding: 12px;

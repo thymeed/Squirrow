@@ -18,10 +18,21 @@ export interface Entry {
   updatedAt: number
 }
 
+/** A named set of entry ids, kept per project. Entries are referenced by id, so a deleted entry drops out at load time. */
+export interface SavedPick {
+  id: Id
+  projectId: Id
+  name: string
+  entryIds: Id[]
+  createdAt: number
+}
+
 export interface Snapshot {
   version: 1
   projects: Project[]
   entries: Entry[]
+  /** Absent in version 1 exports made before saved picks existed. The repository always fills it in. */
+  savedPicks?: SavedPick[]
 }
 
 export const newId = (): Id => crypto.randomUUID() as Id

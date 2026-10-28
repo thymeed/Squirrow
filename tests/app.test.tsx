@@ -1,10 +1,11 @@
 import { IDBFactory } from 'fake-indexeddb'
+import { openDB } from 'idb'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FIRST_ENTRY_SEEN_KEY, LAST_EXPORT_KEY } from '../src/core/backup'
 import { estimateTokens, type TokenCounter } from '../src/core/inject'
-import type { EntryKind } from '../src/core/types'
+import { newId, type EntryKind } from '../src/core/types'
 import { App } from '../src/ui/App'
 import { useUpdateReady } from '../src/ui/useUpdateReady'
 
@@ -52,6 +53,15 @@ const button = (label: string) => {
 
 const click = (el: HTMLElement) => act(async () => el.click())
 
+/** The Save button of the open entry dialog. The page also has a "Save pick" button, so plain text would be ambiguous. */
+const dialogSave = () => {
+  const found = [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+    (b) => b.textContent === 'Save',
+  )
+  if (!found) throw new Error('No Save button in the dialog')
+  return found
+}
+
 /** Sets a controlled input's value the way a user typing would, so React sees the change. */
 function type(el: HTMLInputElement | HTMLTextAreaElement, value: string) {
   Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')!.set!.call(el, value)
@@ -71,7 +81,7 @@ async function addEntry(title: string, body = '', kind: EntryKind = 'fact') {
     type(host.querySelector('textarea')!, body)
   })
   if (kind !== 'fact') await choose(host.querySelector<HTMLSelectElement>('[role="dialog"] select')!, kind)
-  await click(button('Save'))
+  await click(dialogSave())
   await until(() => !host.querySelector('[role="dialog"]'))
 }
 
@@ -620,7 +630,7 @@ describe('backup reminder', () => {
     await act(async () =>
       type(host.querySelector<HTMLInputElement>('input[placeholder="Title"]')!, 'Use Postgres 16'),
     )
-    await click(button('Save'))
+    await click(dialogSave())
     await until(() => !host.querySelector('[role="dialog"]'))
     expect(localStorage.getItem(FIRST_ENTRY_SEEN_KEY)).toBe(firstSeen)
   })
@@ -801,5 +811,301 @@ describe('token counts', () => {
     await click(button('Auto-pick'))
     await until(() => text().includes('1 of 2 included'))
     expect(host.querySelector('.budget-result .hint')!.textContent).toBe('estimate')
+  })
+})
+
+describe('saved picks', () => {
+  const pickNameInput = () => host.querySelector<HTMLInputElement>('input[aria-label="Pick name"]')!
+  const pickButton = (label: string) => {
+    const found = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
+    if (!found) throw new Error(`No button "${label}"`)
+    return found
+  }
+  /** Names of the picks listed for the open project. */
+  const pickNames = () =>
+    [...host.querySelectorAll<HTMLButtonElement>('.pick-list button[aria-label^="Load pick "]')].map((b) =>
+      b.getAttribute('aria-label')!.slice('Load pick '.length),
+    )
+  const typeName = (name: string) => act(async () => type(pickNameInput(), name))
+  const submitPick = () => click(host.querySelector<HTMLButtonElement>('.picks form button')!)
+  const deleteEntry = (title: string) => {
+    const li = [...host.querySelectorAll<HTMLLIElement>('.entries > li')].find(
+      (l) => l.querySelector('strong')?.textContent === title,
+    )
+    return click(li!.querySelector<HTMLButtonElement>('button.danger')!)
+  }
+  /** Stubs the download so the exported file can be read back. Returns a function that gives its text. */
+  const captureExport = () => {
+    let exported: Blob | undefined
+    vi.stubGlobal(
+      'URL',
+      class extends URL {
+        static createObjectURL = (blob: Blob) => {
+          exported = blob
+          return 'blob:export'
+        }
+        static revokeObjectURL = () => {}
+      },
+    )
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    return async () => exported!.text()
+  }
+  async function importFile(json: string) {
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
+    Object.defineProperty(input, 'files', { value: [new File([json], 'squirrow.json')], configurable: true })
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })))
+  }
+
+  it('saves the ticked entries as a pick and loads exactly those back', async () => {
+    await addProject('Demo')
+    await addEntry('Alpha')
+    await addEntry('Beta')
+    await addEntry('Gamma')
+    await tick('Alpha')
+    await tick('Gamma')
+    await typeName('Core')
+    await submitPick()
+    await until(() => text().includes('Saved "Core" with 2 entries.'))
+    expect(pickNames()).toEqual(['Core'])
+    expect(pickNameInput().value).toBe('')
+    await tick('Beta')
+    await click(pickButton('Load pick Core'))
+    expect(ticked()).toEqual([expect.stringContaining('Alpha'), expect.stringContaining('Gamma')])
+    expect(text()).toContain('Loaded 2 entries.')
+    expect(text()).not.toContain('missing')
+  })
+
+  it('skips entries deleted since the pick was saved, and says how many were missing', async () => {
+    await addProject('Demo')
+    await addEntry('Alpha')
+    await addEntry('Beta')
+    await addEntry('Gamma')
+    await tick('Alpha')
+    await tick('Beta')
+    await tick('Gamma')
+    await typeName('Trio')
+    await submitPick()
+    await until(() => text().includes('Saved "Trio" with 3 entries.'))
+    await deleteEntry('Beta')
+    await until(() => !shown().includes('Beta'))
+    await tick('Alpha')
+    await tick('Gamma')
+    expect(ticked()).toEqual([])
+    await click(pickButton('Load pick Trio'))
+    expect(ticked()).toEqual([expect.stringContaining('Alpha'), expect.stringContaining('Gamma')])
+    expect(text()).toContain('Loaded 2 entries. 1 was missing (deleted).')
+  })
+
+  it('says so and leaves the ticks alone when every entry of a pick was deleted', async () => {
+    await addProject('Demo')
+    await addEntry('Alpha')
+    await addEntry('Beta')
+    await tick('Alpha')
+    await typeName('Solo')
+    await submitPick()
+    await until(() => text().includes('Saved "Solo" with 1 entry.'))
+    await deleteEntry('Alpha')
+    await until(() => !shown().includes('Alpha'))
+    await tick('Beta')
+    await click(pickButton('Load pick Solo'))
+    await until(() => text().includes('All 1 entry in "Solo" was deleted, so nothing was ticked.'))
+    expect(ticked()).toEqual([expect.stringContaining('Beta')])
+  })
+
+  it('refuses an empty name and a pick with nothing ticked, with a message each time', async () => {
+    await addProject('Demo')
+    await addEntry('Alpha')
+    await tick('Alpha')
+    await typeName('   ')
+    await submitPick()
+    await until(() => text().includes('Give the pick a name before saving'))
+    await tick('Alpha')
+    await typeName('Core')
+    await submitPick()
+    await until(() => text().includes('Tick some entries before saving a pick'))
+    expect(pickNames()).toEqual([])
+    expect(text()).toContain('No saved picks in this project yet.')
+  })
+
+  it('overwrites a pick saved under the same name, and says Updated', async () => {
+    await addProject('Demo')
+    await addEntry('Alpha')
+    await addEntry('Beta')
+    await tick('Alpha')
+    await typeName('Core')
+    await submitPick()
+    await until(() => text().includes('Saved "Core" with 1 entry.'))
+    await tick('Alpha')
+    await tick('Beta')
+    await typeName(' Core ')
+    expect(button('Update pick')).toBeTruthy()
+    expect(text()).toContain('A pick with this name exists here.')
+    await submitPick()
+    await until(() => text().includes('Updated "Core" with 1 entry.'))
+    expect(pickNames()).toEqual(['Core'])
+    await tick('Beta')
+    await click(pickButton('Load pick Core'))
+    expect(ticked()).toEqual([expect.stringContaining('Beta')])
+  })
+
+  it('treats a name that differs only in capitalization as the same pick', async () => {
+    await addProject('Demo')
+    await addEntry('Alpha')
+    await addEntry('Beta')
+    await tick('Alpha')
+    await typeName('Core')
+    await submitPick()
+    await until(() => text().includes('Saved "Core" with 1 entry.'))
+    await tick('Alpha')
+    await tick('Beta')
+    await typeName('core')
+    expect(button('Update pick')).toBeTruthy()
+    await submitPick()
+    await until(() => text().includes('Updated "Core" with 1 entry.'))
+    expect(pickNames()).toEqual(['Core'])
+  })
+
+  it('deletes a pick only after confirmation', async () => {
+    await addProject('Demo')
+    await addEntry('Alpha')
+    await tick('Alpha')
+    await typeName('Core')
+    await submitPick()
+    await until(() => pickNames().length === 1)
+    vi.stubGlobal('confirm', () => false)
+    await click(pickButton('Delete pick Core'))
+    expect(pickNames()).toEqual(['Core'])
+    vi.stubGlobal('confirm', () => true)
+    await click(pickButton('Delete pick Core'))
+    await until(() => pickNames().length === 0)
+    expect(text()).toContain('No saved picks in this project yet.')
+  })
+
+  it('lists only the picks of the open project', async () => {
+    await addProject('A')
+    await addEntry('Alpha')
+    await tick('Alpha')
+    await typeName('Core')
+    await submitPick()
+    await until(() => pickNames().length === 1)
+    await addProject('B')
+    await until(() => activeProject() === 'B')
+    expect(pickNames()).toEqual([])
+    expect(text()).toContain('No saved picks in this project yet.')
+    await openProject('A')
+    expect(pickNames()).toEqual(['Core'])
+  })
+
+  it('loads a pick even when a kind chip hides some of its entries', async () => {
+    await addProject('Demo')
+    await addEntry('Alpha')
+    await addEntry('Chose Vite', '', 'decision')
+    await tick('Alpha')
+    await tick('Chose Vite')
+    await typeName('Both')
+    await submitPick()
+    await until(() => pickNames().length === 1)
+    await tick('Chose Vite')
+    await click(chip('fact'))
+    expect(shown()).toEqual(['Alpha'])
+    await click(pickButton('Load pick Both'))
+    expect(text()).toContain('2 selected')
+    expect(shown()).toEqual(['Alpha'])
+  })
+
+  it('exports the picks to JSON and restores them on import', async () => {
+    const exportedText = captureExport()
+    vi.stubGlobal('confirm', () => true)
+    await addProject('Demo')
+    await addEntry('Alpha')
+    await tick('Alpha')
+    await typeName('Core')
+    await submitPick()
+    await until(() => pickNames().length === 1)
+    await click(button('Export JSON'))
+    const json = await exportedText()
+    expect(JSON.parse(json).savedPicks).toEqual([expect.objectContaining({ name: 'Core' })])
+    await click(pickButton('Delete pick Core'))
+    await until(() => pickNames().length === 0)
+    await importFile(json)
+    await until(() => text().includes('Imported.'))
+    expect(pickNames()).toEqual(['Core'])
+    await tick('Alpha')
+    await click(pickButton('Load pick Core'))
+    expect(ticked()).toEqual([expect.stringContaining('Alpha')])
+  })
+
+  it('imports an export from before saved picks, with no picks', async () => {
+    vi.stubGlobal('confirm', () => true)
+    const projectId = newId()
+    const entryId = newId()
+    const old = JSON.stringify({
+      version: 1,
+      projects: [{ id: projectId, name: 'Old', createdAt: 1 }],
+      entries: [{ id: entryId, projectId, kind: 'fact', title: 'Legacy note', body: '', updatedAt: 1 }],
+    })
+    await importFile(old)
+    await until(() => text().includes('Imported.'))
+    expect(shown()).toEqual(['Legacy note'])
+    expect(text()).toContain('No saved picks in this project yet.')
+  })
+
+  it('keeps the loaded entries through Auto-pick, which may still add other entries', async () => {
+    await addProject('Demo')
+    await addEntry('Alpha')
+    await addEntry('Beta')
+    await addEntry('Gamma')
+    await tick('Alpha')
+    await tick('Beta')
+    await typeName('Pair')
+    await submitPick()
+    await until(() => text().includes('Saved "Pair" with 2 entries.'))
+    await tick('Alpha')
+    expect(ticked()).toEqual([expect.stringContaining('Beta')])
+    await click(pickButton('Load pick Pair'))
+    expect(ticked()).toEqual([expect.stringContaining('Alpha'), expect.stringContaining('Beta')])
+    await click(button('Auto-pick'))
+    await until(() => text().includes('3 of 3 included'))
+    expect(ticked()).toEqual([
+      expect.stringContaining('Alpha'),
+      expect.stringContaining('Beta'),
+      expect.stringContaining('Gamma'),
+    ])
+    expect(text()).not.toContain('Left out (you unticked)')
+  })
+})
+
+describe('older tab', () => {
+  const BLOCKED =
+    'Squirrow is open in another tab with an older version. Close or reload that tab to continue.'
+
+  it('says so while an older tab holds the database, then loads once that tab lets go', async () => {
+    // beforeEach has already opened the current database. Start over with an older one held by another tab.
+    await act(async () => root.unmount())
+    globalThis.indexedDB = new IDBFactory()
+    const projectId = newId()
+    const older = await openDB('squirrow', 1, {
+      upgrade(db) {
+        db.createObjectStore('projects', { keyPath: 'id' })
+        db.createObjectStore('entries', { keyPath: 'id' }).createIndex('byProject', 'projectId')
+      },
+    })
+    await older.put('projects', { id: projectId, name: 'Old', createdAt: 1 })
+    await older.put('entries', {
+      id: newId(),
+      projectId,
+      kind: 'fact',
+      title: 'Legacy note',
+      body: '',
+      updatedAt: 1,
+    })
+    root = createRoot(host)
+    await act(async () => root.render(<App />))
+    await until(() => text().includes(BLOCKED))
+    expect(text()).not.toContain('Loading')
+    expect(host.querySelector('[role="alert"]')!.textContent).toBe(BLOCKED)
+    older.close()
+    await until(() => !text().includes(BLOCKED))
+    expect(shown()).toEqual(['Legacy note'])
   })
 })
