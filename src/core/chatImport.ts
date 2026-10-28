@@ -8,6 +8,43 @@ export interface Draft {
 }
 
 /**
+ * Well-known names with a dot that are not file names, such as "Node.js". The file-note path and extension
+ * rules skip them, so "We use Node.js" stays a fact. Real paths such as "lib/vue.js" still count. Matching
+ * ignores case and needs whole words.
+ */
+const DOTTED_TECH_NAMES: readonly string[] = [
+  'Node.js',
+  'Vue.js',
+  'Next.js',
+  'Nuxt.js',
+  'React.js',
+  'Angular.js',
+  'Ember.js',
+  'Backbone.js',
+  'Alpine.js',
+  'Solid.js',
+  'Gatsby.js',
+  'Express.js',
+  'Nest.js',
+  'Three.js',
+  'D3.js',
+  'Chart.js',
+  'p5.js',
+  'Socket.io',
+  'ASP.NET',
+  '.NET',
+  'VB.NET',
+]
+
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** A tech name as a whole word. A dot, slash or dash next to it makes it part of a path, so it does not match. */
+const TECH_NAME = new RegExp(
+  `(?<![\\w./\\\\-])(?:${DOTTED_TECH_NAMES.map(escapeRegExp).join('|')})(?![\\w/\\\\-])`,
+  'gi',
+)
+
+/**
  * Keyword rules that guess a kind from an entry's title and body. The first rule that matches wins, so
  * the order is the priority. Words match whole words only, so "undecided" is not "decided". An entry that
  * matches no rule is a fact, unless its section heading hints another kind (see SECTION_HINTS below).
@@ -29,7 +66,7 @@ const KIND_RULES: readonly { kind: EntryKind; match: readonly RegExp[] }[] = [
     match: [
       // A path such as ./x, src/foo.ts or a/b/c/d. "and/or" has no dot and only one slash, so it does not count.
       /(?:^|[\s`'"(])(?:\.{1,2}\/[\w./-]+|[\w-]+\/[\w.-]*\.\w+|[\w-]+(?:\/[\w.-]+){2,})/,
-      // A file name with a common extension, such as main.tsx or README.md. This also matches Node.js.
+      // A file name with a common extension, such as main.tsx or README.md.
       /(?<![\w./-])[\w-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|py|go|rs|java|kt|css|scss|html|yml|yaml|toml|sql|sh|env|txt|rb|php|swift|vue|svelte|c|h|cpp|cs)\b/i,
       /\b(?:files?|modules?|function in)\b/i,
     ],
@@ -92,7 +129,7 @@ function joinLines(first: string, rest: string[]): string {
   return [first, ...rest.map((l) => l.slice(shift))].join('\n').trim()
 }
 
-/** A bullet's title and body. "Title: rest" splits at the colon when the label is short. */
+/** A bullet's or a paragraph's title and body. "Title: rest" splits at the colon when the label is short. */
 function splitItem(head: string, rest: string[]): Pick<Draft, 'title' | 'body'> {
   const label = LABEL.exec(head)
   if (label) {
@@ -107,7 +144,9 @@ function splitItem(head: string, rest: string[]): Pick<Draft, 'title' | 'body'> 
 }
 
 function guessKind(text: string, sectionTitle: string): EntryKind {
-  const rule = KIND_RULES.find((r) => r.match.some((re) => re.test(text)))
+  // The file-note rules read the text with tech names blanked out. The other rules read it as it is.
+  const noNames = text.replace(TECH_NAME, ' ')
+  const rule = KIND_RULES.find((r) => r.match.some((re) => re.test(r.kind === 'file-note' ? noNames : text)))
   if (rule) return rule.kind
   return SECTION_HINTS.find((h) => h.match.test(sectionTitle))?.kind ?? 'fact'
 }
@@ -121,19 +160,22 @@ const unindent = (line: string, width: number): string => {
 /**
  * Splits pasted chat text into draft entries. Heuristics only, and it never throws.
  *
- * - A markdown heading sets the section. A heading alone creates nothing. A heading followed only by
- *   plain paragraph text (no bullets or fences before the next heading) becomes one entry.
+ * - A markdown heading sets the section. A heading alone creates nothing. A heading followed only by one
+ *   plain paragraph (no bullets or fences in that section) becomes one entry, titled by the heading.
+ * - A loose paragraph is a run of lines that are not blank, headings, bullets or fences, such as an intro
+ *   sentence. A blank line, heading, bullet, fence or rule line such as "---" ends it. Each paragraph
+ *   becomes one entry, in input order. Its first line is the title and the rest is the body, split and
+ *   guessed the same way as a bullet. Indented lines under a bullet stay in that bullet's body.
  * - Each top-level bullet (-, *, +, 1. or 1)) becomes one entry. Its first line is the title. Indented
  *   lines and nested bullets go to its body. "Title: rest" splits at the colon when the label is short.
  * - A fenced code block becomes a snippet, whose body is exactly the code. Its title is the text line
  *   just above it (if short), else the section heading, else "<language> snippet", else "Snippet".
- *   A fence indented inside a bullet is a snippet too, and it is not part of the bullet's body.
- *   An unclosed fence runs to the end of the input.
+ *   That line is used as the title, so it is not also a paragraph. A fence indented inside a bullet is a
+ *   snippet too, and it is not part of the bullet's body. An unclosed fence runs to the end of the input.
  * - Titles longer than 80 characters are cut at a sentence end or word break, with an ellipsis. The
  *   full first line goes to the body, so nothing is lost.
- * - Bullets with no text are skipped. Lines outside these shapes (plain text not under a heading, for
- *   example an intro sentence) are not imported.
- * - Input past MAX_INPUT_CHARS and drafts past MAX_DRAFTS are dropped without a message.
+ * - Bullets with no text are skipped. Input past MAX_INPUT_CHARS and drafts past MAX_DRAFTS are dropped
+ *   without a message.
  */
 export function parseChatSummary(text: string): Draft[] {
   if (typeof text !== 'string') return []
@@ -144,8 +186,11 @@ export function parseChatSummary(text: string): Draft[] {
   }
 
   let sectionTitle = ''
+  // Whether the open section has a bullet or a fence. Without one, a lone paragraph is the heading's entry.
   let sectionHasBlock = false
+  // The paragraph being read, and the closed paragraphs of the section that no bullet or fence has settled yet.
   let paragraph: string[] = []
+  let loose: string[][] = []
   let item: { head: string; lines: string[] } | null = null
   // Snippets from fences indented inside the open bullet. They come right after that bullet.
   let nested: Draft[] = []
@@ -166,12 +211,34 @@ export function parseChatSummary(text: string): Draft[] {
     item = null
   }
 
-  const flushSection = () => {
-    const body = paragraph.join('\n').trim()
+  const closeParagraph = () => {
+    if (paragraph.length > 0) loose.push(paragraph)
     paragraph = []
-    if (sectionTitle && !sectionHasBlock && body) {
-      const { title, body: full } = titled(sectionTitle, body)
-      add({ kind: guessKind(`${title}\n${full}`, sectionTitle), title, body: full })
+  }
+
+  const flushLoose = () => {
+    for (const lines of loose) {
+      const { title, body } = splitItem(lines[0]!.trim(), lines.slice(1))
+      add({ kind: guessKind(`${title}\n${body}`, sectionTitle), title, body })
+    }
+    loose = []
+  }
+
+  // Called when a bullet or fence starts. The paragraphs before it in this section are entries of their own.
+  const startBlock = () => {
+    closeParagraph()
+    flushLoose()
+    sectionHasBlock = true
+  }
+
+  const flushSection = () => {
+    closeParagraph()
+    if (sectionTitle && !sectionHasBlock && loose.length === 1) {
+      const { title, body } = titled(sectionTitle, loose[0]!.join('\n').trim())
+      add({ kind: guessKind(`${title}\n${body}`, sectionTitle), title, body })
+      loose = []
+    } else {
+      flushLoose()
     }
   }
 
@@ -179,6 +246,7 @@ export function parseChatSummary(text: string): Draft[] {
     const line = lines[i]!
 
     if (line.trim() === '') {
+      closeParagraph()
       blankSince = true
       if (item) item.lines.push('')
       continue
@@ -189,7 +257,6 @@ export function parseChatSummary(text: string): Draft[] {
       const indent = fence[1]!.length
       const marker = fence[2]!
       if (indent === 0) flushItem()
-      sectionHasBlock = true
       const lang = fence[3]!.trim().split(/\s+/)[0] ?? ''
       const code: string[] = []
       let j = i + 1
@@ -200,8 +267,16 @@ export function parseChatSummary(text: string): Draft[] {
       }
       // The title is the nearest text line above the fence, if it is short. Blank lines are skipped.
       const above = last.kind === 'text' ? stripBold(last.text).trim() : ''
-      const title =
-        above && above.length <= TITLE_MAX ? above : sectionTitle || (lang ? `${lang} snippet` : 'Snippet')
+      const useAbove = above !== '' && above.length <= TITLE_MAX
+      closeParagraph()
+      const owner = loose[loose.length - 1]
+      if (useAbove && owner) {
+        // That line is the title, so it does not also become a paragraph. It is the last line of the last paragraph.
+        owner.pop()
+        if (owner.length === 0) loose.pop()
+      }
+      const title = useAbove ? above : sectionTitle || (lang ? `${lang} snippet` : 'Snippet')
+      startBlock()
       const body = code.join('\n').trimEnd()
       if (body.trim()) {
         const snippet: Draft = { kind: 'snippet', title, body }
@@ -234,7 +309,7 @@ export function parseChatSummary(text: string): Draft[] {
     }
     if (bullet) {
       flushItem()
-      sectionHasBlock = true
+      startBlock()
       item = { head: (bullet[2] ?? '').trim(), lines: [] }
       last = { kind: 'item', text: '' }
       blankSince = false
@@ -250,6 +325,14 @@ export function parseChatSummary(text: string): Draft[] {
       continue
     }
     flushItem()
+
+    // A rule line such as "---" is not text. It ends the paragraph, like a blank line.
+    if (isEmptyLine(line)) {
+      closeParagraph()
+      last = { kind: 'none', text: '' }
+      blankSince = true
+      continue
+    }
 
     paragraph.push(line)
     last = { kind: 'text', text: line.trim() }

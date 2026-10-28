@@ -13,20 +13,28 @@ describe('parseChatSummary: sections and paragraphs', () => {
       [['fact', 'Setup', 'Run the dev server.']],
     ],
     [
-      'a paragraph under a heading that also has bullets is not imported',
+      'a paragraph under a heading that also has bullets becomes a draft, in order',
       '## Stack\nHere is what we use.\n- Vite\n- Postgres',
       [
+        ['fact', 'Here is what we use.', ''],
         ['fact', 'Vite', ''],
         ['fact', 'Postgres', ''],
       ],
     ],
     [
-      'text before any heading is not imported',
+      'text before any heading becomes a draft',
       'Here is a summary of our chat.\n\n## Stack\n- Vite',
-      [['fact', 'Vite', '']],
+      [
+        ['fact', 'Here is a summary of our chat.', ''],
+        ['fact', 'Vite', ''],
+      ],
     ],
     ['an empty heading creates nothing', '#\n\n- Vite', [['fact', 'Vite', '']]],
-    ['"#tag" without a space is not a heading', '#tag is text', []],
+    [
+      '"#tag" without a space is not a heading, so it is plain text',
+      '#tag is text',
+      [['fact', '#tag is text', '']],
+    ],
   ])('%s', (_name, input, expected) => {
     expect(rows(parseChatSummary(input))).toEqual(expected)
   })
@@ -46,7 +54,11 @@ describe('parseChatSummary: bullets', () => {
       '-\n  Use Postgres 16',
       ['Use Postgres 16'],
     ],
-    ['a hyphen with no digit is not a numbered bullet', '1.5 million users\n- two', ['two']],
+    [
+      'a hyphen with no digit is not a numbered bullet',
+      '1.5 million users\n- two',
+      ['1.5 million users', 'two'],
+    ],
   ])('%s', (_name, input, titles) => {
     expect(parseChatSummary(input).map((d) => d.title)).toEqual(titles)
   })
@@ -63,7 +75,10 @@ describe('parseChatSummary: bullets', () => {
 
   it('keeps a lazy line right after a bullet in its body, and a blank line ends the bullet', () => {
     const drafts = parseChatSummary('- Vite\nfast startup\n\nLoose words after a blank line')
-    expect(rows(drafts)).toEqual([['fact', 'Vite', 'fast startup']])
+    expect(rows(drafts)).toEqual([
+      ['fact', 'Vite', 'fast startup'],
+      ['fact', 'Loose words after a blank line', ''],
+    ])
   })
 
   it.each<[string, string, [string, string]]>([
@@ -120,6 +135,11 @@ describe('parseChatSummary: kind guessing', () => {
     ['and/or is not a path', '- Choose and/or logic', 'fact'],
     ['plain fact', '- We use Postgres 16', 'fact'],
     ['decision beats preference', '- Decided to always lint', 'decision'],
+    ['Node.js is a tech name, not a file', '- We use Node.js for the server', 'fact'],
+    ['Next.js is a tech name, not a file', '- Next.js app router', 'fact'],
+    ['ASP.NET is a tech name, not a file', '- ASP.NET Core', 'fact'],
+    ['a path to a .js file is a file', '- Edit src/server.js', 'file-note'],
+    ['a path to vue.js is a file', '- lib/vue.js holds the bundle', 'file-note'],
   ])('%s', (_name, input, kind) => {
     expect(parseChatSummary(input)[0]?.kind).toBe(kind)
   })
@@ -157,10 +177,20 @@ describe('parseChatSummary: code fences', () => {
     expect(rows(parseChatSummary('## Helpers\n```js\nx()\n```'))).toEqual([['snippet', 'Helpers', 'x()']])
   })
 
-  it('uses the section heading when the line above is too long', () => {
+  it('uses the section heading when the line above is too long, and that line becomes a paragraph', () => {
     const long = `${'word '.repeat(20)}end`
     expect(rows(parseChatSummary(`## Helpers\n${long}\n\`\`\`js\nx()\n\`\`\``))).toEqual([
+      ['fact', `${'word '.repeat(15)}word…`, long],
       ['snippet', 'Helpers', 'x()'],
+    ])
+  })
+
+  it('does not read a fence as paragraphs, and the text after it is one', () => {
+    expect(
+      rows(parseChatSummary('```js\nconst a = 1\n\nSome words in the code\n```\n\nAfter the code.')),
+    ).toEqual([
+      ['snippet', 'js snippet', 'const a = 1\n\nSome words in the code'],
+      ['fact', 'After the code.', ''],
     ])
   })
 
@@ -195,6 +225,77 @@ describe('parseChatSummary: code fences', () => {
 
   it('does not import an empty fence', () => {
     expect(parseChatSummary('```js\n```')).toEqual([])
+  })
+})
+
+describe('parseChatSummary: loose paragraphs', () => {
+  it('imports an intro sentence before any heading', () => {
+    expect(rows(parseChatSummary('Here is the summary of our chat.\n\n## Stack\n- Vite'))).toEqual([
+      ['fact', 'Here is the summary of our chat.', ''],
+      ['fact', 'Vite', ''],
+    ])
+  })
+
+  it('imports a loose paragraph between the bullets of one section, in order', () => {
+    expect(
+      rows(parseChatSummary('## Stack\n- Vite\n\nWe also run the tests nightly.\n\n- Postgres')),
+    ).toEqual([
+      ['fact', 'Vite', ''],
+      ['fact', 'We also run the tests nightly.', ''],
+      ['fact', 'Postgres', ''],
+    ])
+  })
+
+  it('makes two paragraphs separated by a blank line two drafts', () => {
+    expect(rows(parseChatSummary('First thing to know.\n\nSecond thing to know.'))).toEqual([
+      ['fact', 'First thing to know.', ''],
+      ['fact', 'Second thing to know.', ''],
+    ])
+  })
+
+  it('treats a line of only spaces, tabs or no-break spaces as blank', () => {
+    const drafts = parseChatSummary('First thing.\n  \t \nSecond thing.\n \nThird thing.')
+    expect(drafts.map((d) => d.title)).toEqual(['First thing.', 'Second thing.', 'Third thing.'])
+  })
+
+  it('guesses the kind of a loose paragraph from its words', () => {
+    expect(rows(parseChatSummary('We decided to ship on Friday.'))).toEqual([
+      ['decision', 'We decided to ship on Friday.', ''],
+    ])
+  })
+
+  it('gives a heading over one plain paragraph exactly one entry', () => {
+    expect(rows(parseChatSummary('## Setup\nRun the dev server.\nThen open the page.'))).toEqual([
+      ['fact', 'Setup', 'Run the dev server.\nThen open the page.'],
+    ])
+  })
+
+  it('never reads the lines of a fence as paragraphs', () => {
+    expect(rows(parseChatSummary('## Run\n```sh\nnpm test\n\nNot a paragraph\n```'))).toEqual([
+      ['snippet', 'Run', 'npm test\n\nNot a paragraph'],
+    ])
+  })
+
+  it('does not turn a rule line such as "---" into a draft', () => {
+    expect(rows(parseChatSummary('Intro.\n---\nMore.'))).toEqual([
+      ['fact', 'Intro.', ''],
+      ['fact', 'More.', ''],
+    ])
+  })
+
+  it('keeps indented lines under a bullet in that bullet, not as paragraphs', () => {
+    expect(
+      rows(parseChatSummary('- Vite\n  Fast startup.\n\n  Still the same bullet.\n\nLoose end.')),
+    ).toEqual([
+      ['fact', 'Vite', 'Fast startup.\n\nStill the same bullet.'],
+      ['fact', 'Loose end.', ''],
+    ])
+  })
+
+  it('splits a loose paragraph at a short label, like a bullet', () => {
+    expect(rows(parseChatSummary('Note: the build runs on CI.'))).toEqual([
+      ['fact', 'Note', 'the build runs on CI.'],
+    ])
   })
 })
 
@@ -280,6 +381,7 @@ describe('parseChatSummary: a realistic chat summary', () => {
     ].join('\n')
 
     expect(rows(parseChatSummary(summary))).toEqual([
+      ['fact', 'Here is a summary of our chat about the Squirrow build.', ''],
       ['fact', 'We use Vite and React 19 with TypeScript.', ''],
       ['fact', 'Storage', 'IndexedDB through the idb wrapper.'],
       ['decision', 'We decided to keep the app free of any backend.', ''],
@@ -287,6 +389,53 @@ describe('parseChatSummary: a realistic chat summary', () => {
       ['preference', 'Always give short answers with no filler.', ''],
       ['file-note', 'src/core/search.ts ranks entries.', ''],
       ['snippet', 'Commands', 'npm test\nnpm run build'],
+      ['fact', 'Next step', 'write the import dialog.'],
+      ['fact', 'Open questions', 'Should imports merge or replace?'],
+    ])
+  })
+
+  it('imports loose paragraphs, tech names and paths from a chat summary end to end', () => {
+    const summary = [
+      'Here is a summary of our chat about the import feature.',
+      '',
+      '## Stack',
+      '- We use Node.js for the server.',
+      '- **Storage**: IndexedDB through the idb wrapper.',
+      '',
+      'The UI is plain React, with no router.',
+      '',
+      '## Decisions',
+      'We decided to keep the app free of any backend.',
+      '- Chose Vitest over Jest.',
+      '',
+      '## Preferences',
+      '- Always give short answers.',
+      '',
+      '## Files',
+      'Edit src/server.js and lib/vue.js.',
+      '',
+      '## Commands',
+      '```bash',
+      'npm test',
+      '```',
+      '',
+      'Next step: write the import dialog.',
+      '',
+      '## Open questions',
+      'Should imports merge or replace?',
+    ].join('\n')
+
+    expect(rows(parseChatSummary(summary))).toEqual([
+      ['fact', 'Here is a summary of our chat about the import feature.', ''],
+      ['fact', 'We use Node.js for the server.', ''],
+      ['fact', 'Storage', 'IndexedDB through the idb wrapper.'],
+      ['fact', 'The UI is plain React, with no router.', ''],
+      ['decision', 'We decided to keep the app free of any backend.', ''],
+      ['decision', 'Chose Vitest over Jest.', ''],
+      ['preference', 'Always give short answers.', ''],
+      ['file-note', 'Files', 'Edit src/server.js and lib/vue.js.'],
+      ['snippet', 'Commands', 'npm test'],
+      ['fact', 'Next step', 'write the import dialog.'],
       ['fact', 'Open questions', 'Should imports merge or replace?'],
     ])
   })

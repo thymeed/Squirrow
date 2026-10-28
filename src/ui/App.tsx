@@ -780,8 +780,11 @@ function ImportDialog(props: {
 
   const drop = (key: number) => setCards((cs) => cs?.filter((c) => c.key !== key) ?? null)
 
-  const save = async (e: FormEvent) => {
-    e.preventDefault()
+  // Saving is the Save button's click only. Enter in a title input makes the browser submit the form, so
+  // the review step ignores submits. Enter inside a text box is still a normal key press.
+  const keepOpen = (e: FormEvent) => e.preventDefault()
+
+  const save = async () => {
     if (!cards || cards.length === 0 || saving) return
     if (cards.some((c) => !c.title.trim())) {
       setAttempted(true)
@@ -809,7 +812,7 @@ function ImportDialog(props: {
         role="dialog"
         aria-label="Import from chat"
         onClick={(e) => e.stopPropagation()}
-        onSubmit={cards ? save : preview}
+        onSubmit={cards ? keepOpen : preview}
       >
         {cards ? (
           <>
@@ -882,7 +885,12 @@ function ImportDialog(props: {
               </p>
             )}
             <div className="row">
-              <button type="submit" className="primary" disabled={cards.length === 0 || saving}>
+              <button
+                type="button"
+                className="primary"
+                disabled={cards.length === 0 || saving}
+                onClick={save}
+              >
                 {`Save ${entriesText(cards.length)}`}
               </button>
               <button type="button" disabled={saving} onClick={() => setCards(null)}>

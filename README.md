@@ -26,7 +26,7 @@ Your entries live only in this browser on this device. Clearing site data, using
 - **Copy for your AI chat:** tick entries, see a token count, and copy a paste-ready Markdown block. Snippets are wrapped in code fences.
 - **Auto-pick:** choose a model (or type your own context window), a share of it and a task, and Auto-pick fills that budget with the best entries, counted the same way as the copy panel. Entries matching your task words come first, then decisions, preferences and facts. Entries you tick by hand are kept, entries you untick stay out, and everything left out is listed so nothing disappears silently.
 - **Saved picks:** name the entries you have ticked and save them for the current project. Load a pick later to tick exactly its entries again. Entries deleted since then are skipped, and Squirrow says how many were missing. Saving under a name that already exists updates that pick. Names are matched ignoring capitalization, so "core" and "Core" are the same pick.
-- **Import from chat:** paste a chat summary and it is split into draft entries by its headings, bullets and code blocks. The kind of each draft is guessed from simple keywords. You can edit a draft's title, details and kind, or drop it, before saving the rest into the current project. Nothing leaves your browser, and no AI is used.
+- **Import from chat:** paste a chat summary and it is split into draft entries by its headings, bullets and code blocks, and each loose paragraph becomes a draft too. The kind of each draft is guessed from simple keywords. You can edit a draft's title, details and kind, or drop it, before saving the rest into the current project. Nothing leaves your browser, and no AI is used.
 - **Keyboard first:** `/` to search, `n` for a new entry, `Esc` to close.
 - **Safe updates:** a new version waits until you click Reload, so it never swaps out the app mid-edit. When you do reload, every open Squirrow tab reloads, so finish typing in other tabs first.
 - **Export and import:** JSON round-trips, and Markdown export is available. Import asks before it replaces your data.
@@ -56,7 +56,7 @@ React 19, TypeScript and Vite. Logic lives in `src/core` with no React imports: 
 - The backup reminder is remembered per browser. Another browser or device will show its own reminder, and counts its own 14 days from when it first saw entries. Anyone who already has entries starts counting from their next visit.
 - A saved pick stores which entries it holds, not their text. Editing an entry shows the new text in the pick, and deleting one drops it from the pick when the pick loads.
 - Squirrow runs one version at a time per browser. If an older tab is still open, a newer tab shows a message and waits until that tab is closed or reloaded.
-- Kind guessing for chat imports is keyword-based, so it will sometimes guess wrong (for example, "Node.js" reads as a file). That is why you review the drafts before saving them.
+- Kind guessing for chat imports is keyword-based, so it will sometimes guess wrong. Well-known dotted names such as "Node.js" are read as tech names, not files. That is why you review the drafts before saving them.
 - The list is not virtualized, which is fine for hundreds of entries. It would need changing for thousands.
 - Tests cover `src/core`, the main UI flows and the service worker. Browser-specific behavior such as installing and clipboard permissions is checked by hand.
 

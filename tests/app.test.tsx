@@ -1195,11 +1195,40 @@ describe('import from chat', () => {
     expect(shown()).toEqual([])
   })
 
-  it('says nothing to import when the paste has no headings, bullets or code', async () => {
+  it('says nothing to import when the paste has only headings', async () => {
     await addProject('Demo')
-    await paste('Just a plain sentence with no structure.')
+    await paste('## Plan\n## Details')
     expect(text()).toContain('Nothing to import. Paste a chat summary with headings, bullets or code blocks.')
     expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+  })
+
+  it('Enter in a draft title does not save, and the dialog keeps the drafts', async () => {
+    await addProject('Demo')
+    await paste('- Alpha\n- Beta')
+    const title = host.querySelectorAll<HTMLInputElement>('.draft-list li input')[0]!
+    await act(async () => {
+      title.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      // A browser submits the form on Enter in a text field. requestSubmit stands in for that here.
+      title.form!.requestSubmit()
+    })
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(draftTitles()).toEqual(['Alpha', 'Beta'])
+    expect(shown()).toEqual([])
+
+    await click(importButton('Save 2 entries'))
+    await until(() => !host.querySelector('[role="dialog"]'))
+    expect(shown()).toEqual(['Alpha', 'Beta'])
+  })
+
+  it('Enter in the paste box is a new line, not a preview', async () => {
+    await addProject('Demo')
+    await click(button('Import from chat'))
+    const area = host.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!
+    await act(async () => type(area, '- Alpha'))
+    await act(async () => area.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+    expect(host.querySelector('[role="dialog"] textarea')).toBe(area)
+    expect(host.querySelector('.draft-list')).toBeNull()
+    expect(area.value).toBe('- Alpha')
   })
 
   it('disables Save once every draft is dropped', async () => {
