@@ -1,5 +1,5 @@
 import { deleteDB, openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Entry, Id, Project, Snapshot } from './types'
+import type { Entry, Id, Project, SavedPick, Snapshot } from './types'
 
 export interface Repository {
   load(): Promise<Snapshot>
@@ -7,12 +7,15 @@ export interface Repository {
   deleteProject(id: Id): Promise<void>
   putEntry(e: Entry): Promise<void>
   deleteEntry(id: Id): Promise<void>
+  putSavedPick(p: SavedPick): Promise<void>
+  deleteSavedPick(id: Id): Promise<void>
   replaceAll(s: Snapshot): Promise<void>
 }
 
 interface Schema extends DBSchema {
   projects: { key: string; value: Project }
   entries: { key: string; value: Entry; indexes: { byProject: string } }
+  savedPicks: { key: string; value: SavedPick; indexes: { byProject: string } }
 }
 
 const DB_NAME = 'squirrow'
@@ -21,7 +24,8 @@ const LEGACY_DB_NAME = 'context-keeper'
 async function migrateLegacy(db: IDBPDatabase<Schema>, legacyName: string): Promise<void> {
   let legacy: IDBPDatabase<Schema>
   try {
-    legacy = await openDB<Schema>(legacyName, 1, {
+    // No version: read the legacy database at whatever version it has. The abort stops a missing one from being created.
+    legacy = await openDB<Schema>(legacyName, undefined, {
       upgrade(_db, _old, _new, tx) {
         tx.done.catch(() => {})
         tx.abort()
@@ -51,12 +55,18 @@ export function createIndexedDbRepository(
   name = DB_NAME,
   legacyName: string | null = name === DB_NAME ? LEGACY_DB_NAME : null,
 ): Repository {
+  // Only a brand-new database (no version yet) copies the legacy data. An upgrade keeps what it has.
   let created = false
-  const dbp: Promise<IDBPDatabase<Schema>> = openDB<Schema>(name, 1, {
-    upgrade(db) {
-      created = true
-      db.createObjectStore('projects', { keyPath: 'id' })
-      db.createObjectStore('entries', { keyPath: 'id' }).createIndex('byProject', 'projectId')
+  const dbp: Promise<IDBPDatabase<Schema>> = openDB<Schema>(name, 2, {
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        created = true
+        db.createObjectStore('projects', { keyPath: 'id' })
+        db.createObjectStore('entries', { keyPath: 'id' }).createIndex('byProject', 'projectId')
+      }
+      if (oldVersion < 2) {
+        db.createObjectStore('savedPicks', { keyPath: 'id' }).createIndex('byProject', 'projectId')
+      }
     },
   }).then(async (db) => {
     if (created && legacyName) await migrateLegacy(db, legacyName)
@@ -65,16 +75,23 @@ export function createIndexedDbRepository(
   return {
     async load() {
       const db = await dbp
-      return { version: 1, projects: await db.getAll('projects'), entries: await db.getAll('entries') }
+      return {
+        version: 1,
+        projects: await db.getAll('projects'),
+        entries: await db.getAll('entries'),
+        savedPicks: await db.getAll('savedPicks'),
+      }
     },
     async putProject(p) {
       await (await dbp).put('projects', p)
     },
     async deleteProject(id) {
       const db = await dbp
-      const tx = db.transaction(['projects', 'entries'], 'readwrite')
+      const tx = db.transaction(['projects', 'entries', 'savedPicks'], 'readwrite')
       const entries = tx.objectStore('entries')
       for (const key of await entries.index('byProject').getAllKeys(id)) await entries.delete(key)
+      const picks = tx.objectStore('savedPicks')
+      for (const key of await picks.index('byProject').getAllKeys(id)) await picks.delete(key)
       await tx.objectStore('projects').delete(id)
       await tx.done
     },
@@ -84,13 +101,24 @@ export function createIndexedDbRepository(
     async deleteEntry(id) {
       await (await dbp).delete('entries', id)
     },
+    async putSavedPick(p) {
+      await (await dbp).put('savedPicks', p)
+    },
+    async deleteSavedPick(id) {
+      await (await dbp).delete('savedPicks', id)
+    },
     async replaceAll(s) {
       const db = await dbp
-      const tx = db.transaction(['projects', 'entries'], 'readwrite')
-      await Promise.all([tx.objectStore('projects').clear(), tx.objectStore('entries').clear()])
+      const tx = db.transaction(['projects', 'entries', 'savedPicks'], 'readwrite')
+      await Promise.all([
+        tx.objectStore('projects').clear(),
+        tx.objectStore('entries').clear(),
+        tx.objectStore('savedPicks').clear(),
+      ])
       await Promise.all([
         ...s.projects.map((p) => tx.objectStore('projects').put(p)),
         ...s.entries.map((e) => tx.objectStore('entries').put(e)),
+        ...(s.savedPicks ?? []).map((p) => tx.objectStore('savedPicks').put(p)),
       ])
       await tx.done
     },

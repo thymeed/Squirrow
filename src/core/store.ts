@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { sameName } from './picks'
 import { createIndexedDbRepository, type Repository } from './repository'
-import { newId, type Entry, type Id, type Project, type Snapshot } from './types'
+import { newId, type Entry, type Id, type Project, type SavedPick, type Snapshot } from './types'
 
-const EMPTY: Snapshot = { version: 1, projects: [], entries: [] }
+const EMPTY: Snapshot = { version: 1, projects: [], entries: [], savedPicks: [] }
 
 export function useStore(repo?: Repository) {
   const repository = useMemo(() => repo ?? createIndexedDbRepository(), [repo])
@@ -40,6 +41,7 @@ export function useStore(repo?: Repository) {
         ...d,
         projects: d.projects.filter((p) => p.id !== id),
         entries: d.entries.filter((e) => e.projectId !== id),
+        savedPicks: (d.savedPicks ?? []).filter((p) => p.projectId !== id),
       }))
     },
     [repository],
@@ -67,13 +69,64 @@ export function useStore(repo?: Repository) {
     [repository],
   )
 
-  const replaceAll = useCallback(
-    async (s: Snapshot) => {
-      await repository.replaceAll(s)
-      setData(s)
+  // Picks are matched by name within the project. The name is trimmed and compared ignoring case
+  // (see sameName). An existing pick keeps its id and spelling. Returns whether one was overwritten.
+  const savePick = useCallback(
+    async (projectId: Id, name: string, entryIds: Id[]) => {
+      const trimmed = name.trim()
+      if (!trimmed) throw new Error('Give the pick a name before saving')
+      const ids = [...new Set(entryIds)]
+      if (ids.length === 0) throw new Error('Tick some entries before saving a pick')
+      const picks = data.savedPicks ?? []
+      const existing = picks.find((p) => p.projectId === projectId && sameName(p.name, trimmed))
+      const pick: SavedPick = {
+        id: existing?.id ?? newId(),
+        projectId,
+        name: existing?.name ?? trimmed,
+        entryIds: ids,
+        createdAt: Date.now(),
+      }
+      await repository.putSavedPick(pick)
+      setData((d) => {
+        const current = d.savedPicks ?? []
+        return {
+          ...d,
+          savedPicks: current.some((p) => p.id === pick.id)
+            ? current.map((p) => (p.id === pick.id ? pick : p))
+            : [...current, pick],
+        }
+      })
+      return { pick, replaced: existing !== undefined }
+    },
+    [repository, data.savedPicks],
+  )
+
+  const removePick = useCallback(
+    async (id: Id) => {
+      await repository.deleteSavedPick(id)
+      setData((d) => ({ ...d, savedPicks: (d.savedPicks ?? []).filter((p) => p.id !== id) }))
     },
     [repository],
   )
 
-  return { data, ready, error, addProject, removeProject, saveEntry, removeEntry, replaceAll }
+  const replaceAll = useCallback(
+    async (s: Snapshot) => {
+      await repository.replaceAll(s)
+      setData({ ...s, savedPicks: s.savedPicks ?? [] })
+    },
+    [repository],
+  )
+
+  return {
+    data,
+    ready,
+    error,
+    addProject,
+    removeProject,
+    saveEntry,
+    removeEntry,
+    savePick,
+    removePick,
+    replaceAll,
+  }
 }

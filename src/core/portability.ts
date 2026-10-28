@@ -1,7 +1,8 @@
 import { afterLabel, oneLine } from './markdown'
-import { ENTRY_KINDS, type Entry, type Project, type Snapshot } from './types'
+import { ENTRY_KINDS, type Entry, type Project, type SavedPick, type Snapshot } from './types'
 
-export const exportJson = (s: Snapshot): string => JSON.stringify(s, null, 2)
+export const exportJson = (s: Snapshot): string =>
+  JSON.stringify({ ...s, savedPicks: s.savedPicks ?? [] }, null, 2)
 
 export function exportMarkdown(s: Snapshot): string {
   return s.projects
@@ -61,5 +62,34 @@ export function parseSnapshot(text: string): Snapshot {
       updatedAt: Number(e.updatedAt) || 0,
     }
   })
-  return { version: 1, projects, entries }
+  // Absent in files exported before saved picks existed, which then have none.
+  const savedPicks = raw.savedPicks === undefined ? [] : parsePicks(raw.savedPicks, ids)
+  return { version: 1, projects, entries, savedPicks }
+}
+
+function parsePicks(raw: unknown, projectIds: Set<string>): SavedPick[] {
+  if (!Array.isArray(raw)) throw new Error('Invalid saved pick in file')
+  const pickIds = new Set<string>()
+  return raw.map((p): SavedPick => {
+    if (
+      !isObj(p) ||
+      typeof p.id !== 'string' ||
+      typeof p.projectId !== 'string' ||
+      typeof p.name !== 'string' ||
+      !Array.isArray(p.entryIds) ||
+      !p.entryIds.every((id) => typeof id === 'string') ||
+      !projectIds.has(p.projectId)
+    ) {
+      throw new Error('Invalid saved pick in file')
+    }
+    if (pickIds.has(p.id)) throw new Error('Duplicate saved pick id in file')
+    pickIds.add(p.id)
+    return {
+      id: p.id as SavedPick['id'],
+      projectId: p.projectId as SavedPick['projectId'],
+      name: p.name,
+      entryIds: p.entryIds as SavedPick['entryIds'],
+      createdAt: Number(p.createdAt) || 0,
+    }
+  })
 }

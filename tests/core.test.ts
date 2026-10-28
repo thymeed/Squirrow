@@ -17,6 +17,7 @@ import {
   type TokenCounter,
 } from '../src/core/inject'
 import { MAX_IMPORT_CHARS, exportJson, exportMarkdown, parseSnapshot } from '../src/core/portability'
+import { resolvePick, sameName } from '../src/core/picks'
 import { createIndexedDbRepository } from '../src/core/repository'
 import { filterByKinds, scoreTask, searchEntries } from '../src/core/search'
 import {
@@ -27,6 +28,7 @@ import {
   newId,
   type Entry,
   type Project,
+  type SavedPick,
   type Snapshot,
 } from '../src/core/types'
 
@@ -40,6 +42,13 @@ const entry = (title: string, body = '', kind: Entry['kind'] = 'fact', updatedAt
   updatedAt,
 })
 const snapshot = (entries: Entry[]): Snapshot => ({ version: 1, projects: [project], entries })
+const pick = (name: string, entryIds: string[], projectId = project.id): SavedPick => ({
+  id: newId(),
+  projectId,
+  name,
+  entryIds: entryIds as SavedPick['entryIds'],
+  createdAt: 1,
+})
 
 describe('search', () => {
   const a = entry('Database choice', 'We use Postgres')
@@ -347,7 +356,44 @@ describe('token counting', () => {
 describe('portability', () => {
   it('round-trips through JSON', () => {
     const s = snapshot([entry('A', 'b')])
+    expect(parseSnapshot(exportJson(s))).toEqual({ ...s, savedPicks: [] })
+  })
+  it('parses an old export without savedPicks into an empty list of picks', () => {
+    const a = entry('A')
+    const old = JSON.stringify({ version: 1, projects: [project], entries: [a] })
+    expect(parseSnapshot(old)).toEqual({ version: 1, projects: [project], entries: [a], savedPicks: [] })
+  })
+  it('writes savedPicks in every export, even when the snapshot has none', () => {
+    expect(JSON.parse(exportJson(snapshot([])))).toMatchObject({ savedPicks: [] })
+  })
+  it('round-trips saved picks through JSON', () => {
+    const a = entry('A')
+    const s: Snapshot = { ...snapshot([a]), savedPicks: [pick('Core', [a.id])] }
     expect(parseSnapshot(exportJson(s))).toEqual(s)
+  })
+  it('accepts a pick whose entries are not in the file, since they are skipped at load time', () => {
+    const s: Snapshot = { ...snapshot([]), savedPicks: [pick('Gone', [newId()])] }
+    expect(parseSnapshot(exportJson(s)).savedPicks).toEqual(s.savedPicks)
+  })
+  it('rejects a saved picks field that is not an array', () => {
+    const file = { version: 1, projects: [project], entries: [], savedPicks: 'nope' }
+    expect(() => parseSnapshot(JSON.stringify(file))).toThrow('Invalid saved pick in file')
+  })
+  it.each([
+    ['no name', { name: undefined }],
+    ['a numeric name', { name: 3 }],
+    ['no id', { id: undefined }],
+    ['entryIds that are not strings', { entryIds: [1] }],
+    ['entryIds that are not an array', { entryIds: 'a' }],
+    ['a project that is not in the file', { projectId: 'nowhere' }],
+  ])('rejects a saved pick with %s', (_label, bad) => {
+    const file = { version: 1, projects: [project], entries: [], savedPicks: [{ ...pick('x', []), ...bad }] }
+    expect(() => parseSnapshot(JSON.stringify(file))).toThrow('Invalid saved pick in file')
+  })
+  it('rejects duplicate saved pick ids', () => {
+    const p = pick('Core', [])
+    const file = { version: 1, projects: [project], entries: [], savedPicks: [p, { ...p, name: 'Copy' }] }
+    expect(() => parseSnapshot(JSON.stringify(file))).toThrow('Duplicate saved pick id')
   })
   it('rejects bad input with a readable error', () => {
     expect(() => parseSnapshot('nope')).toThrow('valid JSON')
@@ -387,6 +433,39 @@ describe('portability', () => {
   })
 })
 
+describe('resolvePick', () => {
+  it('returns the entries that still exist, in the pick order, and counts the rest as missing', () => {
+    const a = entry('A')
+    const b = entry('B')
+    const c = entry('C')
+    const saved = pick('Trio', [c.id, 'gone', a.id])
+    expect(resolvePick(saved, [a, b, c])).toEqual({ entryIds: [c.id, a.id], missing: 1 })
+  })
+  it('reports every entry missing when all were deleted', () => {
+    expect(resolvePick(pick('Gone', ['x', 'y']), [entry('A')])).toEqual({ entryIds: [], missing: 2 })
+  })
+  it('counts an id that repeats in the pick only once', () => {
+    const a = entry('A')
+    expect(resolvePick(pick('Dupe', [a.id, a.id, 'gone']), [a])).toEqual({ entryIds: [a.id], missing: 1 })
+  })
+  it('ignores an entry with the same id that belongs to another project', () => {
+    const a = entry('A')
+    const otherProject = { ...a, projectId: newId() }
+    expect(resolvePick(pick('Core', [a.id]), [otherProject])).toEqual({ entryIds: [], missing: 1 })
+  })
+})
+
+describe('sameName', () => {
+  it('matches names ignoring capitalization and surrounding spaces', () => {
+    expect(sameName('core', 'Core')).toBe(true)
+    expect(sameName('  CORE ', 'core')).toBe(true)
+  })
+  it('does not match different words', () => {
+    expect(sameName('core', 'cores')).toBe(false)
+    expect(sameName('core', 'core notes')).toBe(false)
+  })
+})
+
 describe('repository', () => {
   it('persists across repository instances and cascades project deletes', async () => {
     const name = `t-${newId()}`
@@ -405,6 +484,62 @@ describe('repository', () => {
     const s = snapshot([entry('new')])
     await repo.replaceAll(s)
     expect(await repo.load()).toMatchObject({ entries: s.entries })
+  })
+  it('keeps a version 1 database intact when it upgrades to version 2, and does not copy legacy data', async () => {
+    const name = `t-${newId()}`
+    const legacy = `legacy-${newId()}`
+    const e = entry('Kept')
+    const v1 = await openDB(name, 1, {
+      upgrade(db) {
+        db.createObjectStore('projects', { keyPath: 'id' })
+        db.createObjectStore('entries', { keyPath: 'id' }).createIndex('byProject', 'projectId')
+      },
+    })
+    await v1.put('projects', project)
+    await v1.put('entries', e)
+    v1.close()
+    // A legacy database with other data must not leak in, because the upgrade is not a brand-new install.
+    const old = createIndexedDbRepository(legacy, null)
+    await old.putProject({ ...project, id: newId(), name: 'Legacy' })
+    const upgraded = createIndexedDbRepository(name, legacy)
+    expect(await upgraded.load()).toEqual({ version: 1, projects: [project], entries: [e], savedPicks: [] })
+    const pick = { id: newId(), projectId: project.id, name: 'Core', entryIds: [e.id], createdAt: 1 }
+    await upgraded.putSavedPick(pick)
+    expect(await upgraded.load()).toMatchObject({ projects: [project], entries: [e], savedPicks: [pick] })
+    const db = await openDB(name)
+    expect(db.version).toBe(2)
+    expect(db.objectStoreNames.contains('savedPicks')).toBe(true)
+    db.close()
+  })
+  it('saves, overwrites and deletes a saved pick', async () => {
+    const repo = createIndexedDbRepository(`t-${newId()}`)
+    const pick = { id: newId(), projectId: project.id, name: 'Core', entryIds: [newId()], createdAt: 1 }
+    await repo.putSavedPick(pick)
+    await repo.putSavedPick({ ...pick, name: 'Renamed' })
+    expect((await repo.load()).savedPicks).toEqual([{ ...pick, name: 'Renamed' }])
+    await repo.deleteSavedPick(pick.id)
+    expect((await repo.load()).savedPicks).toEqual([])
+  })
+  it('deleting a project also deletes its saved picks, but keeps other projects picks', async () => {
+    const repo = createIndexedDbRepository(`t-${newId()}`)
+    const other: Project = { id: newId(), name: 'Other', createdAt: 2 }
+    const mine = { id: newId(), projectId: project.id, name: 'Mine', entryIds: [], createdAt: 1 }
+    const theirs = { id: newId(), projectId: other.id, name: 'Theirs', entryIds: [], createdAt: 1 }
+    await repo.putProject(project)
+    await repo.putProject(other)
+    await repo.putSavedPick(mine)
+    await repo.putSavedPick(theirs)
+    await repo.deleteProject(project.id)
+    expect(await repo.load()).toMatchObject({ projects: [other], savedPicks: [theirs] })
+  })
+  it('replaceAll replaces the saved picks too', async () => {
+    const repo = createIndexedDbRepository(`t-${newId()}`)
+    await repo.putSavedPick({ id: newId(), projectId: project.id, name: 'Old', entryIds: [], createdAt: 1 })
+    const fresh = { id: newId(), projectId: project.id, name: 'New', entryIds: [], createdAt: 1 }
+    await repo.replaceAll({ ...snapshot([]), savedPicks: [fresh] })
+    expect((await repo.load()).savedPicks).toEqual([fresh])
+    await repo.replaceAll(snapshot([]))
+    expect((await repo.load()).savedPicks).toEqual([])
   })
   it('copies legacy data into the new database without overwriting later changes', async () => {
     const legacy = `legacy-${newId()}`
