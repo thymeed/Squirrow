@@ -1,20 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sameName } from './picks'
-import { createIndexedDbRepository, type Repository } from './repository'
+import { createIndexedDbRepository, type DbNotice, type Repository } from './repository'
 import { newId, type Entry, type Id, type Project, type SavedPick, type Snapshot } from './types'
 
 const EMPTY: Snapshot = { version: 1, projects: [], entries: [], savedPicks: [] }
 
+const NOTICE_TEXT: Record<DbNotice, string> = {
+  blocked: 'Squirrow is open in another tab with an older version. Close or reload that tab to continue.',
+  superseded:
+    'Squirrow was updated in another tab, so this one closed its database. Reload this page to continue.',
+  lost: 'Squirrow lost its connection to the browser storage. Reload this page to continue.',
+}
+
 export function useStore(repo?: Repository) {
-  const repository = useMemo(() => repo ?? createIndexedDbRepository(), [repo])
   const [data, setData] = useState<Snapshot>(EMPTY)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Only the repository this hook creates reports notices. A repository passed in does not.
+  const repository = useMemo(
+    () => repo ?? createIndexedDbRepository(undefined, undefined, (notice) => setError(NOTICE_TEXT[notice])),
+    [repo],
+  )
 
   useEffect(() => {
     repository.load().then(
       (s) => {
         setData(s)
+        setError(null)
         setReady(true)
       },
       (err) => {
@@ -84,7 +96,7 @@ export function useStore(repo?: Repository) {
         projectId,
         name: existing?.name ?? trimmed,
         entryIds: ids,
-        createdAt: Date.now(),
+        createdAt: existing?.createdAt ?? Date.now(),
       }
       await repository.putSavedPick(pick)
       setData((d) => {

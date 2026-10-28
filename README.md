@@ -54,6 +54,7 @@ React 19, TypeScript and Vite. Logic lives in `src/core` with no React imports: 
 - Token counts use the o200k tokenizer (`gpt-tokenizer`). They are exact for recent GPT models and approximate for Claude and Gemini, which use their own tokenizers. If the tokenizer fails to load, the app falls back to about 4 characters per token and labels the count "estimate". The tokenizer is about 1 MB gzipped and is cached for offline use on the first visit.
 - The backup reminder is remembered per browser. Another browser or device will show its own reminder, and counts its own 14 days from when it first saw entries. Anyone who already has entries starts counting from their next visit.
 - A saved pick stores which entries it holds, not their text. Editing an entry shows the new text in the pick, and deleting one drops it from the pick when the pick loads.
+- Squirrow runs one version at a time per browser. If an older tab is still open, a newer tab shows a message and waits until that tab is closed or reloaded.
 - The list is not virtualized, which is fine for hundreds of entries. It would need changing for thousands.
 - Tests cover `src/core`, the main UI flows and the service worker. Browser-specific behavior such as installing and clipboard permissions is checked by hand.
 

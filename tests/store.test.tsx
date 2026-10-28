@@ -99,12 +99,15 @@ describe('store', () => {
       const { repo, writes } = pickRepo(base([]))
       const get = await mountStore(repo)
       const e1 = newId()
+      const before = Date.now()
       let result!: Awaited<ReturnType<ReturnType<typeof useStore>['savePick']>>
       await act(async () => {
         result = await get().savePick(project.id, '  Core  ', [e1, e1])
       })
       expect(result.replaced).toBe(false)
       expect(result.pick).toMatchObject({ projectId: project.id, name: 'Core', entryIds: [e1] })
+      expect(result.pick.createdAt).toBeGreaterThanOrEqual(before)
+      expect(result.pick.createdAt).toBeLessThanOrEqual(Date.now())
       expect(get().data.savedPicks).toEqual([result.pick])
       expect(writes).toEqual([`put ${result.pick.id}`])
     })
@@ -120,6 +123,7 @@ describe('store', () => {
       })
       expect(result.replaced).toBe(true)
       expect(result.pick.id).toBe(old.id)
+      expect(result.pick.createdAt).toBe(old.createdAt)
       expect(get().data.savedPicks).toEqual([result.pick])
       expect(get().data.savedPicks![0]!.entryIds).toEqual([fresh])
       expect(writes).toEqual([`put ${old.id}`])

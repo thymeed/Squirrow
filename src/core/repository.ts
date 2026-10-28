@@ -12,6 +12,12 @@ export interface Repository {
   replaceAll(s: Snapshot): Promise<void>
 }
 
+/**
+ * Why this tab cannot use the database for now. `blocked`: an older tab still holds it, so the open waits.
+ * `superseded`: a newer version needs it, so this tab closed its connection. `lost`: the browser closed it.
+ */
+export type DbNotice = 'blocked' | 'superseded' | 'lost'
+
 interface Schema extends DBSchema {
   projects: { key: string; value: Project }
   entries: { key: string; value: Entry; indexes: { byProject: string } }
@@ -54,6 +60,7 @@ async function migrateLegacy(db: IDBPDatabase<Schema>, legacyName: string): Prom
 export function createIndexedDbRepository(
   name = DB_NAME,
   legacyName: string | null = name === DB_NAME ? LEGACY_DB_NAME : null,
+  onNotice: (notice: DbNotice) => void = () => {},
 ): Repository {
   // Only a brand-new database (no version yet) copies the legacy data. An upgrade keeps what it has.
   let created = false
@@ -67,6 +74,19 @@ export function createIndexedDbRepository(
       if (oldVersion < 2) {
         db.createObjectStore('savedPicks', { keyPath: 'id' }).createIndex('byProject', 'projectId')
       }
+    },
+    // An older tab still holds the database, so the open waits until that tab closes its connection.
+    blocked() {
+      onNotice('blocked')
+    },
+    // A newer version needs the database. Let go of this connection so it can upgrade; the user reloads.
+    blocking(_current, _blocked, event) {
+      const connection = event.target as IDBDatabase
+      connection.close()
+      onNotice('superseded')
+    },
+    terminated() {
+      onNotice('lost')
     },
   }).then(async (db) => {
     if (created && legacyName) await migrateLegacy(db, legacyName)
@@ -110,17 +130,30 @@ export function createIndexedDbRepository(
     async replaceAll(s) {
       const db = await dbp
       const tx = db.transaction(['projects', 'entries', 'savedPicks'], 'readwrite')
-      await Promise.all([
-        tx.objectStore('projects').clear(),
-        tx.objectStore('entries').clear(),
-        tx.objectStore('savedPicks').clear(),
-      ])
-      await Promise.all([
-        ...s.projects.map((p) => tx.objectStore('projects').put(p)),
-        ...s.entries.map((e) => tx.objectStore('entries').put(e)),
-        ...(s.savedPicks ?? []).map((p) => tx.objectStore('savedPicks').put(p)),
-      ])
-      await tx.done
+      // tx.done rejects when the transaction aborts, and that is handled below, so it is not left unhandled.
+      tx.done.catch(() => {})
+      const writes: Promise<unknown>[] = []
+      try {
+        // Every request is issued in this same tick, so the transaction is still open for an abort below.
+        writes.push(
+          tx.objectStore('projects').clear(),
+          tx.objectStore('entries').clear(),
+          tx.objectStore('savedPicks').clear(),
+        )
+        writes.push(...s.projects.map((p) => tx.objectStore('projects').put(p)))
+        writes.push(...s.entries.map((e) => tx.objectStore('entries').put(e)))
+        writes.push(...(s.savedPicks ?? []).map((p) => tx.objectStore('savedPicks').put(p)))
+        await Promise.all(writes)
+        await tx.done
+      } catch (err) {
+        // One failed write rolls back the clears too, so the old data survives. The browser may have
+        // aborted the transaction already, in which case the extra abort is refused and ignored.
+        void Promise.allSettled(writes)
+        try {
+          tx.abort()
+        } catch {}
+        throw err
+      }
     },
   }
 }

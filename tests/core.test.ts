@@ -18,7 +18,7 @@ import {
 } from '../src/core/inject'
 import { MAX_IMPORT_CHARS, exportJson, exportMarkdown, parseSnapshot } from '../src/core/portability'
 import { resolvePick, sameName } from '../src/core/picks'
-import { createIndexedDbRepository } from '../src/core/repository'
+import { createIndexedDbRepository, type DbNotice } from '../src/core/repository'
 import { filterByKinds, scoreTask, searchEntries } from '../src/core/search'
 import {
   BUDGET_SHARES,
@@ -381,6 +381,8 @@ describe('portability', () => {
   })
   it.each([
     ['no name', { name: undefined }],
+    ['an empty name', { name: '' }],
+    ['a whitespace-only name', { name: '   ' }],
     ['a numeric name', { name: 3 }],
     ['no id', { id: undefined }],
     ['entryIds that are not strings', { entryIds: [1] }],
@@ -389,6 +391,10 @@ describe('portability', () => {
   ])('rejects a saved pick with %s', (_label, bad) => {
     const file = { version: 1, projects: [project], entries: [], savedPicks: [{ ...pick('x', []), ...bad }] }
     expect(() => parseSnapshot(JSON.stringify(file))).toThrow('Invalid saved pick in file')
+  })
+  it('accepts a saved pick whose name has spaces inside it', () => {
+    const s: Snapshot = { ...snapshot([]), savedPicks: [pick('Weekly review', [])] }
+    expect(parseSnapshot(exportJson(s)).savedPicks).toEqual(s.savedPicks)
   })
   it('rejects duplicate saved pick ids', () => {
     const p = pick('Core', [])
@@ -510,6 +516,43 @@ describe('repository', () => {
     expect(db.version).toBe(2)
     expect(db.objectStoreNames.contains('savedPicks')).toBe(true)
     db.close()
+  })
+  it('keeps the old data when replaceAll fails on a bad entry, instead of leaving it cleared', async () => {
+    const repo = createIndexedDbRepository(`t-${newId()}`)
+    const seeded = entry('Seeded')
+    await repo.putProject(project)
+    await repo.putEntry(seeded)
+    const noId = { projectId: project.id, kind: 'fact', title: 'No id', body: '', updatedAt: 1 }
+    const bad = { ...snapshot([]), entries: [noId] } as unknown as Snapshot
+    await expect(repo.replaceAll(bad)).rejects.toThrow()
+    expect(await repo.load()).toEqual({ version: 1, projects: [project], entries: [seeded], savedPicks: [] })
+  })
+  it('reports a blocked open and loads once the older connection closes', async () => {
+    const name = `t-${newId()}`
+    const older = await openDB(name, 1, {
+      upgrade(db) {
+        db.createObjectStore('projects', { keyPath: 'id' })
+        db.createObjectStore('entries', { keyPath: 'id' }).createIndex('byProject', 'projectId')
+      },
+    })
+    await older.put('projects', project)
+    let onNotice!: (notice: DbNotice) => void
+    const notice = new Promise<DbNotice>((resolve) => (onNotice = resolve))
+    const repo = createIndexedDbRepository(name, null, onNotice)
+    const loaded = repo.load()
+    expect(await notice).toBe('blocked')
+    older.close()
+    expect(await loaded).toEqual({ version: 1, projects: [project], entries: [], savedPicks: [] })
+  })
+  it('lets go of its connection when a newer version needs the database, and says so', async () => {
+    const name = `t-${newId()}`
+    let onNotice!: (notice: DbNotice) => void
+    const notice = new Promise<DbNotice>((resolve) => (onNotice = resolve))
+    const repo = createIndexedDbRepository(name, null, onNotice)
+    await repo.load()
+    const newer = await openDB(name, 3)
+    expect(await notice).toBe('superseded')
+    newer.close()
   })
   it('saves, overwrites and deletes a saved pick', async () => {
     const repo = createIndexedDbRepository(`t-${newId()}`)

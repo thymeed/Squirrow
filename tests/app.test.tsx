@@ -1,4 +1,5 @@
 import { IDBFactory } from 'fake-indexeddb'
+import { openDB } from 'idb'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -1047,5 +1048,64 @@ describe('saved picks', () => {
     await until(() => text().includes('Imported.'))
     expect(shown()).toEqual(['Legacy note'])
     expect(text()).toContain('No saved picks in this project yet.')
+  })
+
+  it('keeps the loaded entries through Auto-pick, which may still add other entries', async () => {
+    await addProject('Demo')
+    await addEntry('Alpha')
+    await addEntry('Beta')
+    await addEntry('Gamma')
+    await tick('Alpha')
+    await tick('Beta')
+    await typeName('Pair')
+    await submitPick()
+    await until(() => text().includes('Saved "Pair" with 2 entries.'))
+    await tick('Alpha')
+    expect(ticked()).toEqual([expect.stringContaining('Beta')])
+    await click(pickButton('Load pick Pair'))
+    expect(ticked()).toEqual([expect.stringContaining('Alpha'), expect.stringContaining('Beta')])
+    await click(button('Auto-pick'))
+    await until(() => text().includes('3 of 3 included'))
+    expect(ticked()).toEqual([
+      expect.stringContaining('Alpha'),
+      expect.stringContaining('Beta'),
+      expect.stringContaining('Gamma'),
+    ])
+    expect(text()).not.toContain('Left out (you unticked)')
+  })
+})
+
+describe('older tab', () => {
+  const BLOCKED =
+    'Squirrow is open in another tab with an older version. Close or reload that tab to continue.'
+
+  it('says so while an older tab holds the database, then loads once that tab lets go', async () => {
+    // beforeEach has already opened the current database. Start over with an older one held by another tab.
+    await act(async () => root.unmount())
+    globalThis.indexedDB = new IDBFactory()
+    const projectId = newId()
+    const older = await openDB('squirrow', 1, {
+      upgrade(db) {
+        db.createObjectStore('projects', { keyPath: 'id' })
+        db.createObjectStore('entries', { keyPath: 'id' }).createIndex('byProject', 'projectId')
+      },
+    })
+    await older.put('projects', { id: projectId, name: 'Old', createdAt: 1 })
+    await older.put('entries', {
+      id: newId(),
+      projectId,
+      kind: 'fact',
+      title: 'Legacy note',
+      body: '',
+      updatedAt: 1,
+    })
+    root = createRoot(host)
+    await act(async () => root.render(<App />))
+    await until(() => text().includes(BLOCKED))
+    expect(text()).not.toContain('Loading')
+    expect(host.querySelector('[role="alert"]')!.textContent).toBe(BLOCKED)
+    older.close()
+    await until(() => !text().includes(BLOCKED))
+    expect(shown()).toEqual(['Legacy note'])
   })
 })

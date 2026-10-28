@@ -76,6 +76,7 @@ function parsePicks(raw: unknown, projectIds: Set<string>): SavedPick[] {
       typeof p.id !== 'string' ||
       typeof p.projectId !== 'string' ||
       typeof p.name !== 'string' ||
+      !p.name.trim() ||
       !Array.isArray(p.entryIds) ||
       !p.entryIds.every((id) => typeof id === 'string') ||
       !projectIds.has(p.projectId)
