@@ -1,4 +1,4 @@
-import { IDBFactory } from 'fake-indexeddb'
+import { IDBFactory, IDBObjectStore } from 'fake-indexeddb'
 import { openDB } from 'idb'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -1107,5 +1107,304 @@ describe('older tab', () => {
     older.close()
     await until(() => !text().includes(BLOCKED))
     expect(shown()).toEqual(['Legacy note'])
+  })
+})
+
+describe('import from chat', () => {
+  const SUMMARY = [
+    '## Stack',
+    '- Vite for the build',
+    '- We decided to use Postgres 16',
+    '- Drop me please',
+    '',
+    '## Files',
+    '- src/core/search.ts ranks entries',
+  ].join('\n')
+
+  /** A button of the open import dialog, matched by its exact label. */
+  const importButton = (label: string) => {
+    const found = [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+      (b) => b.textContent === label,
+    )
+    if (!found) throw new Error(`No "${label}" button in the import dialog`)
+    return found
+  }
+
+  /** The title inputs of the preview cards, in order. */
+  const draftTitles = () =>
+    [...host.querySelectorAll<HTMLInputElement>('.draft-list li input')].map((i) => i.value)
+
+  const paste = async (summary: string) => {
+    await click(button('Import from chat'))
+    await act(async () => type(host.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!, summary))
+    await click(importButton('Preview'))
+  }
+
+  it('saves exactly the kept drafts, with the titles and kinds chosen in the preview', async () => {
+    await addProject('Demo')
+    await paste(SUMMARY)
+    expect(text()).toContain('4 drafts')
+    expect(text()).not.toContain('Only the first')
+    expect(draftTitles()).toEqual([
+      'Vite for the build',
+      'We decided to use Postgres 16',
+      'Drop me please',
+      'src/core/search.ts ranks entries',
+    ])
+    expect([...host.querySelectorAll<HTMLSelectElement>('.draft-list select')].map((s) => s.value)).toEqual([
+      'fact',
+      'decision',
+      'fact',
+      'file-note',
+    ])
+
+    await act(async () => type(host.querySelectorAll<HTMLInputElement>('.draft-list li input')[0]!, 'Vite 5'))
+    await choose(host.querySelectorAll<HTMLSelectElement>('.draft-list select')[0]!, 'preference')
+    await click(host.querySelector<HTMLButtonElement>('[aria-label="Drop draft 3"]')!)
+    expect(draftTitles()).toEqual([
+      'Vite 5',
+      'We decided to use Postgres 16',
+      'src/core/search.ts ranks entries',
+    ])
+
+    await click(importButton('Save 3 entries'))
+    await until(() => !host.querySelector('[role="dialog"]'))
+    expect(shown()).toEqual(['Vite 5', 'We decided to use Postgres 16', 'src/core/search.ts ranks entries'])
+    expect([...host.querySelectorAll('.entries li')].map((li) => li.className)).toEqual([
+      'kind-preference',
+      'kind-decision',
+      'kind-file-note',
+    ])
+    expect(text()).toContain('Imported 3 entries.')
+  })
+
+  it('appends to the entries already in the project and leaves them as they were', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16', 'decision')
+    await paste('- Vite for the build')
+    await click(importButton('Save 1 entry'))
+    await until(() => !host.querySelector('[role="dialog"]'))
+    expect(shown()).toEqual(['Use Postgres', 'Vite for the build'])
+    expect(host.querySelector('.entries li.kind-decision p')!.textContent).toBe('version 16')
+  })
+
+  it('closes on Esc without saving anything', async () => {
+    await addProject('Demo')
+    await paste(SUMMARY)
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })))
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
+    expect(shown()).toEqual([])
+  })
+
+  it('says nothing to import when the paste has only headings', async () => {
+    await addProject('Demo')
+    await paste('## Plan\n## Details')
+    expect(text()).toContain(
+      'Nothing to import. Paste a chat summary with headings, bullets, paragraphs or code blocks.',
+    )
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+  })
+
+  it('says in the paste-step hint that paragraphs are recognized', async () => {
+    await addProject('Demo')
+    await click(button('Import from chat'))
+    const hint = host.querySelector('[role="dialog"] p.hint')!.textContent
+    expect(hint).toContain('paragraphs')
+    expect(hint).toContain('code blocks')
+  })
+
+  it('refuses a paste with one line longer than the cap, and keeps the text on the paste step', async () => {
+    await addProject('Demo')
+    await click(button('Import from chat'))
+    const area = host.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!
+    await act(async () => type(area, 'x'.repeat(250_000)))
+    await click(importButton('Preview'))
+    const alert = host.querySelector('[role="dialog"] [role="alert"]')!
+    expect(alert.textContent).toBe(
+      'This paste has a single line longer than 200,000 characters, so nothing was imported. Break it into shorter lines or paragraphs and paste it again.',
+    )
+    expect(text()).not.toContain('Nothing to import')
+    expect(host.querySelector('[role="dialog"] textarea')).toBe(area)
+    expect(area.value.length).toBe(250_000)
+    expect(host.querySelector('.draft-list')).toBeNull()
+  })
+
+  it('says nothing to import, not the too-long message, for blank input past the cap', async () => {
+    await addProject('Demo')
+    await paste(' '.repeat(250_000))
+    expect(host.querySelector('[role="dialog"] [role="alert"]')!.textContent).toBe(
+      'Nothing to import. Paste a chat summary with headings, bullets, paragraphs or code blocks.',
+    )
+    expect(text()).not.toContain('single line longer')
+  })
+
+  it('shows neither message for a normal paste', async () => {
+    await addProject('Demo')
+    await paste('- Vite for the build')
+    expect(draftTitles()).toEqual(['Vite for the build'])
+    expect(text()).not.toContain('Nothing to import')
+    expect(text()).not.toContain('single line longer')
+    expect(host.querySelector('[role="dialog"] [role="alert"]')).toBeNull()
+  })
+
+  it('Enter in a draft title does not save, and the dialog keeps the drafts', async () => {
+    await addProject('Demo')
+    await paste('- Alpha\n- Beta')
+    const title = host.querySelectorAll<HTMLInputElement>('.draft-list li input')[0]!
+    await act(async () => {
+      title.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      // A browser submits the form on Enter in a text field. requestSubmit stands in for that here.
+      title.form!.requestSubmit()
+      // Wait for a save that wrongly started to finish, so the checks below would see it.
+      await new Promise((r) => setTimeout(r, 100))
+    })
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(draftTitles()).toEqual(['Alpha', 'Beta'])
+    expect(shown()).toEqual([])
+
+    await click(importButton('Save 2 entries'))
+    await until(() => !host.querySelector('[role="dialog"]'))
+    expect(shown()).toEqual(['Alpha', 'Beta'])
+  })
+
+  it('Enter in the paste box does not start a preview, and the textarea stays', async () => {
+    await addProject('Demo')
+    await click(button('Import from chat'))
+    const area = host.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!
+    await act(async () => type(area, '- Alpha'))
+    await act(async () => area.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+    // Still the paste step: no review list, the Preview button is still there, and the textarea keeps its text.
+    expect(host.querySelector('[role="dialog"] textarea')).toBe(area)
+    expect(area.value).toBe('- Alpha')
+    expect(host.querySelector('.draft-list')).toBeNull()
+    expect(importButton('Preview')).toBeTruthy()
+  })
+
+  it('disables Save once every draft is dropped', async () => {
+    await addProject('Demo')
+    await paste('- One\n- Two')
+    await click(host.querySelector<HTMLButtonElement>('[aria-label="Drop draft 1"]')!)
+    await click(host.querySelector<HTMLButtonElement>('[aria-label="Drop draft 1"]')!)
+    expect(importButton('Save 0 entries').disabled).toBe(true)
+    expect(text()).toContain('Every draft is dropped')
+  })
+
+  it('blocks a draft with an empty title, marks it, and saves nothing until it has a title', async () => {
+    await addProject('Demo')
+    await paste('- Vite for the build\n- Drop me')
+    await act(async () => type(host.querySelector<HTMLInputElement>('.draft-list li input')!, ''))
+    await click(importButton('Save 2 entries'))
+    expect(text()).toContain('Title is required')
+    expect(host.querySelector('.draft-list input')!.getAttribute('aria-invalid')).toBe('true')
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(shown()).toEqual([])
+
+    await act(async () => type(host.querySelector<HTMLInputElement>('.draft-list li input')!, 'Vite'))
+    expect(text()).not.toContain('Title is required')
+    await click(importButton('Save 2 entries'))
+    await until(() => !host.querySelector('[role="dialog"]'))
+    expect(shown()).toEqual(['Vite', 'Drop me'])
+  })
+
+  it('stops on a failed save, says how many were saved, and keeps the rest to save again', async () => {
+    await addProject('Demo')
+    await paste('- Alpha\n- Beta\n- Gamma')
+    const realPut = IDBObjectStore.prototype.put
+    let writes = 0
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, ...args) {
+      writes++
+      if (writes === 2) throw new Error('disk full')
+      return realPut.apply(this, args as Parameters<IDBObjectStore['put']>)
+    })
+    await click(importButton('Save 3 entries'))
+    await until(() => text().includes('then this failed'))
+    expect(text()).toContain('Saved 1 of 3 entries, then this failed: disk full.')
+    expect(draftTitles()).toEqual(['Beta', 'Gamma'])
+    expect(shown()).toEqual(['Alpha'])
+
+    vi.restoreAllMocks()
+    await click(importButton('Save 2 entries'))
+    await until(() => !host.querySelector('[role="dialog"]'))
+    expect(shown()).toEqual(['Alpha', 'Beta', 'Gamma'])
+  })
+
+  it('is not offered until a project is open', async () => {
+    expect(
+      [...host.querySelectorAll('button')].some((b) => b.textContent?.includes('Import from chat')),
+    ).toBe(false)
+    await addProject('Demo')
+    expect(button('Import from chat')).toBeTruthy()
+  })
+
+  it('Back keeps the pasted text, and a new preview replaces the edits made in review', async () => {
+    await addProject('Demo')
+    await paste('- Alpha\n- Beta')
+    await act(async () => type(host.querySelector<HTMLInputElement>('.draft-list li input')!, 'Edited'))
+    await click(importButton('Back'))
+    expect(host.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!.value).toBe('- Alpha\n- Beta')
+    await click(importButton('Preview'))
+    expect(draftTitles()).toEqual(['Alpha', 'Beta'])
+    expect(text()).toContain(
+      'Back keeps your pasted text, but edits made here are replaced when you preview again.',
+    )
+  })
+
+  it('does not open search or a new entry on / or n while the import dialog is open', async () => {
+    await addProject('Demo')
+    await click(button('Import from chat'))
+    const press = (key: string) =>
+      act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true })))
+    await press('/')
+    expect(document.activeElement).not.toBe(searchInput())
+    await press('n')
+    expect(host.querySelector('[aria-label="Entry"]')).toBeNull()
+    expect(host.querySelector('[aria-label="Import from chat"]')).not.toBeNull()
+  })
+
+  it('ignores Esc and a click on the overlay while the drafts are saving, then closes after', async () => {
+    await addProject('Demo')
+    await paste('- Alpha\n- Beta')
+    // The click starts the save, and its IndexedDB write is still pending when the next lines run.
+    act(() => importButton('Save 2 entries').click())
+    expect(host.querySelector<HTMLInputElement>('.draft-list li input')!.disabled).toBe(true)
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+      host.querySelector<HTMLElement>('.overlay')!.click()
+    })
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+    await until(() => !host.querySelector('[role="dialog"]'))
+    expect(shown()).toEqual(['Alpha', 'Beta'])
+  })
+
+  it('closes on Esc again once a failed save has stopped', async () => {
+    await addProject('Demo')
+    await paste('- Alpha')
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(() => {
+      throw new Error('disk full')
+    })
+    await click(importButton('Save 1 entry'))
+    await until(() => text().includes('then this failed'))
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })))
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('says on the review step when only the first 200 drafts were read', async () => {
+    await addProject('Demo')
+    await paste(Array.from({ length: 5_000 }, (_, i) => `- item ${i}`).join('\n'))
+    expect(draftTitles()).toHaveLength(200)
+    expect(host.querySelector('[role="dialog"] [role="status"]')!.textContent).toBe(
+      'Only the first 200 drafts were read; the rest of the paste was skipped.',
+    )
+  })
+
+  it('says on the review step when the paste was cut at 200,000 characters, at a whole line', async () => {
+    await addProject('Demo')
+    const long = `- Long bullet\n${Array.from({ length: 12_000 }, (_, i) => `  continued line ${i} with some words`).join('\n')}`
+    expect(long.length).toBeGreaterThan(200_000)
+    await paste(long)
+    expect(draftTitles()).toEqual(['Long bullet'])
+    expect(host.querySelector('[role="dialog"] [role="status"]')!.textContent).toBe(
+      'Only the first 200,000 characters were read, up to the last whole line; the rest of the paste was skipped.',
+    )
   })
 })

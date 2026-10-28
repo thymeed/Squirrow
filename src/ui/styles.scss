@@ -459,6 +459,64 @@ main {
     gap: 10px;
     animation: pop 0.18s ease both;
   }
+  form.import {
+    width: min(720px, 94vw);
+    max-height: 92vh;
+    overflow-y: auto;
+  }
+}
+.draft-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  li {
+    --kc: var(--accent);
+    display: grid;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--kc);
+    border-radius: 10px;
+    background: var(--card);
+    &.kind-fact {
+      --kc: var(--k-fact);
+    }
+    &.kind-decision {
+      --kc: var(--k-decision);
+    }
+    &.kind-preference {
+      --kc: var(--k-preference);
+    }
+    &.kind-snippet {
+      --kc: var(--k-snippet);
+    }
+    &.kind-file-note {
+      --kc: var(--k-file-note);
+    }
+  }
+  label {
+    display: grid;
+    gap: 2px;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  input,
+  select,
+  textarea {
+    width: 100%;
+    color: var(--fg);
+  }
+  input[aria-invalid='true'] {
+    border-color: var(--danger);
+  }
+  textarea {
+    font-size: 0.95rem;
+  }
+  .row {
+    justify-content: flex-end;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
