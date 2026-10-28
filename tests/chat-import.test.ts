@@ -582,6 +582,22 @@ describe('parseChatSummary: hard-wrapped text', () => {
     ['a single capital initial', 'Ask J. Smith about it.\nDone then.', 'Ask J. Smith about it.'],
     ['"vs."', 'Compare vs. the old build.\nDone then.', 'Compare vs. the old build.'],
     ['"approx." before a number', 'It costs approx. 40 units.\nDone then.', 'It costs approx. 40 units.'],
+    [
+      '"e.g." before a capital',
+      'Use a bundler, e.g. Vite, for the build.\nIt is fast.',
+      'Use a bundler, e.g. Vite, for the build.',
+    ],
+    [
+      '"e.g." in a wrapped bullet',
+      '- Pick one store, e.g. IndexedDB, for\n  the drafts.',
+      'Pick one store, e.g. IndexedDB, for the drafts.',
+    ],
+    [
+      '"i.e." before a capital',
+      'Use a bundler, i.e. Vite, for the build.\nIt is fast.',
+      'Use a bundler, i.e. Vite, for the build.',
+    ],
+    ['a capital "E.g." at a sentence start', 'E.g. Vite is fast.\nIt is small.', 'E.g. Vite is fast.'],
   ])('does not end the first sentence at %s', (_name, input, title) => {
     expect(parseChatSummary(input).map((d) => d.title)).toEqual([title])
   })
@@ -589,6 +605,31 @@ describe('parseChatSummary: hard-wrapped text', () => {
   it.each<[string, string, string, string]>([
     ['!', 'Wow! Ship it now.\nThen test it.', 'Wow!', 'Wow! Ship it now. Then test it.'],
     ['?', 'Is it ready?\nNot yet.', 'Is it ready?', 'Is it ready? Not yet.'],
+    [
+      'a closing quote after the period',
+      'He said "Go now." Then\nleft.',
+      'He said "Go now."',
+      'He said "Go now." Then left.',
+    ],
+    [
+      'a closing paren after the period',
+      'It works (mostly.) Then\nleft.',
+      'It works (mostly.)',
+      'It works (mostly.) Then left.',
+    ],
+    ['a bold mark after the period', '**Bold.** Next part\nhere.', 'Bold.', '**Bold.** Next part here.'],
+    [
+      'a real end after "e.g."',
+      'Use a bundler, e.g. Vite. It is fast.\nIt is small.',
+      'Use a bundler, e.g. Vite.',
+      'Use a bundler, e.g. Vite. It is fast. It is small.',
+    ],
+    [
+      'a real end after "i.e."',
+      'Use a bundler, i.e. Vite. It is fast.\nIt is small.',
+      'Use a bundler, i.e. Vite.',
+      'Use a bundler, i.e. Vite. It is fast. It is small.',
+    ],
   ])('ends the first sentence at %s', (_name, input, title, body) => {
     expect(rows(parseChatSummary(input))).toEqual([['fact', title, body]])
   })
@@ -598,6 +639,11 @@ describe('parseChatSummary: hard-wrapped text', () => {
       ['fact', 'We use Vite for builds.', 'We use *Vite* for builds. It is fast.'],
     ])
     expect(rows(parseChatSummary('- *Vite* is fast'))).toEqual([['fact', 'Vite is fast', '']])
+  })
+
+  it('strips *italic* from a label name and from the text line above a fence', () => {
+    expect(rows(parseChatSummary('- *Note*: italic label'))).toEqual([['fact', 'Note', 'italic label']])
+    expect(rows(parseChatSummary('*Run this*\n```sh\nx\n```'))).toEqual([['snippet', 'Run this', 'x']])
   })
 
   it.each<[string, string]>([

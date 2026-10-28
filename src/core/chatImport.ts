@@ -81,11 +81,23 @@ const SECTION_HINTS: readonly { kind: EntryKind; match: RegExp }[] = [
 ]
 
 /**
- * Words whose dot does not end a sentence, such as "Dr. Smith", plus single capital initials such as "J.". The
- * "e.g.", "i.e." and "etc." cases need no entry: a sentence end must be followed by a capital, digit, quote or
- * bracket, so "e.g. the" never ends one.
+ * Words whose dot does not end a sentence, such as "Dr. Smith", plus single capital initials such as "J.". "e.g."
+ * and "i.e." never end one, in lower or capital form, so both forms are listed. "etc." needs no entry: a sentence
+ * end must be followed by a capital, digit, quote or bracket, so "etc. the" never ends one.
  */
-const NOT_SENTENCE_END: ReadonlySet<string> = new Set(['Dr', 'Mr', 'Mrs', 'Ms', 'vs', 'approx', 'No'])
+const NOT_SENTENCE_END: ReadonlySet<string> = new Set([
+  'Dr',
+  'Mr',
+  'Mrs',
+  'Ms',
+  'vs',
+  'approx',
+  'No',
+  'e.g',
+  'i.e',
+  'E.g',
+  'I.e',
+])
 
 /**
  * A sentence end: ., ! or ? with any closing quote, bracket or emphasis mark after it, then whitespace and a capital,
@@ -336,8 +348,8 @@ function unwrapFence(text: string): string {
  *   snippet too, and it is not part of the bullet's body. An unclosed fence runs to the end of the input.
  * - A paste that is one fence with no language, or with md, markdown or text, is read as the text inside it,
  *   as in unwrapFence. That happens first, before the caps below, so the caps apply to the text inside.
- * - Titles longer than 80 characters are cut at a sentence end or word break, with an ellipsis. The
- *   full first line goes to the body, so nothing is lost.
+ * - The lines of a paragraph or bullet are joined first. The title is its first sentence, cut at a sentence end or
+ *   word break near 80 characters, with an ellipsis. The details hold the full joined text.
  * - Bullets with no text are skipped. Input past MAX_INPUT_CHARS is cut at the last line break before the
  *   cap, and drafts past MAX_DRAFTS are dropped. Either one sets `truncated`, so the caller can say so.
  * - If no whole line fits in the cap, the paste has text, and it is past the cap, nothing is read and
