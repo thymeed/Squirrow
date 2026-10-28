@@ -1373,11 +1373,34 @@ describe('import from chat', () => {
     expect(host.querySelector<HTMLInputElement>('.draft-list li input')!.disabled).toBe(true)
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-      host.querySelector<HTMLElement>('.overlay')!.click()
+      // A real press on the overlay, then the click, so the overlay path reaches the saving guard.
+      const overlay = host.querySelector<HTMLElement>('.overlay')!
+      overlay.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+      overlay.click()
     })
     expect(host.querySelector('[role="dialog"]')).not.toBeNull()
     await until(() => !host.querySelector('[role="dialog"]'))
     expect(shown()).toEqual(['Alpha', 'Beta'])
+  })
+
+  it('keeps the dialog open after a press and click on the overlay during a save that then failed', async () => {
+    await addProject('Demo')
+    await paste('- Alpha')
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(() => {
+      throw new Error('disk full')
+    })
+    act(() => importButton('Save 1 entry').click())
+    // The press and the click land while the save is pending. The guard keeps the dialog open, and the click resets the press record.
+    act(() => {
+      const overlay = host.querySelector<HTMLElement>('.overlay')!
+      overlay.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+      overlay.click()
+    })
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+    await until(() => text().includes('then this failed'))
+    // The save has stopped and the dialog is still open. A click with no press before it must not close it.
+    await mouseEvent(host.querySelector('.overlay')!, 'click')
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
   })
 
   it('closes on Esc again once a failed save has stopped', async () => {
