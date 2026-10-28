@@ -188,7 +188,10 @@ describe('parseChatSummary: code fences', () => {
   })
 
   it('uses a plain "Snippet" title when there is no language and no context', () => {
-    expect(rows(parseChatSummary('```\nrun()\n```'))).toEqual([['snippet', 'Snippet', 'run()']])
+    expect(rows(parseChatSummary('```\nrun()\n```\nAfter.'))).toEqual([
+      ['snippet', 'Snippet', 'run()'],
+      ['fact', 'After.', ''],
+    ])
   })
 
   it('uses the short text line just above the fence as the title', () => {
@@ -225,14 +228,14 @@ describe('parseChatSummary: code fences', () => {
   })
 
   it('does not read headings or bullets inside a fence', () => {
-    expect(rows(parseChatSummary('```md\n# not a heading\n- not a bullet\n```'))).toEqual([
-      ['snippet', 'md snippet', '# not a heading\n- not a bullet'],
+    expect(rows(parseChatSummary('```js\n# not a heading\n- not a bullet\n```'))).toEqual([
+      ['snippet', 'js snippet', '# not a heading\n- not a bullet'],
     ])
   })
 
   it('keeps a fence closed only by a matching marker, longer or equal', () => {
-    expect(rows(parseChatSummary('````\n```\nstill code\n````'))).toEqual([
-      ['snippet', 'Snippet', '```\nstill code'],
+    expect(rows(parseChatSummary('````ts\n```\nstill code\n````'))).toEqual([
+      ['snippet', 'ts snippet', '```\nstill code'],
     ])
   })
 
@@ -263,6 +266,167 @@ describe('parseChatSummary: code fences', () => {
 
   it('takes the line above a non-empty fence as its title, and does not repeat it', () => {
     expect(rows(parseChatSummary('Keep me\n```\nx\n```'))).toEqual([['snippet', 'Keep me', 'x']])
+  })
+})
+
+describe('parseChatSummary: a whole paste inside one text fence', () => {
+  const summary = '## Stack\n- Vite\n- Postgres: version 16\n\nWe decided to keep it simple.'
+  const expected = [
+    ['fact', 'Vite', ''],
+    ['fact', 'Postgres', 'version 16'],
+    ['decision', 'We decided to keep it simple.', ''],
+  ]
+
+  it.each(['```markdown', '```md', '```text', '```MARKDOWN', '```Md', '```', '~~~md'])(
+    'reads a summary inside %s as normal text',
+    (open) => {
+      const close = open.startsWith('~') ? '~~~' : '```'
+      expect(rows(parseChatSummary(`${open}\n${summary}\n${close}`))).toEqual(expected)
+    },
+  )
+
+  it('reads an untagged fence holding bullets as bullet drafts', () => {
+    expect(rows(parseChatSummary('```\n- Vite\n- Postgres\n```'))).toEqual([
+      ['fact', 'Vite', ''],
+      ['fact', 'Postgres', ''],
+    ])
+  })
+
+  it.each([
+    ['ts', 'ts snippet'],
+    ['js', 'js snippet'],
+    ['bash', 'bash snippet'],
+    ['json', 'json snippet'],
+    ['plaintext', 'plaintext snippet'],
+    ['txt', 'txt snippet'],
+  ])('keeps a ```%s fence as one snippet', (lang, title) => {
+    expect(rows(parseChatSummary(`\`\`\`${lang}\n- Vite\n- Postgres\n\`\`\``))).toEqual([
+      ['snippet', title, '- Vite\n- Postgres'],
+    ])
+  })
+
+  it('does not unwrap a fence with a long text line before it', () => {
+    const long = `${'word '.repeat(20)}end`
+    expect(rows(parseChatSummary(`${long}\n\`\`\`md\n- Vite\n\`\`\``))).toEqual([
+      ['fact', `${'word '.repeat(15)}word…`, long],
+      ['snippet', 'md snippet', '- Vite'],
+    ])
+  })
+
+  it('does not unwrap a fence with a short text line before it, which still titles the snippet', () => {
+    expect(rows(parseChatSummary('Intro line\n```md\n- Vite\n```'))).toEqual([
+      ['snippet', 'Intro line', '- Vite'],
+    ])
+  })
+
+  it('does not unwrap a fence with text after it', () => {
+    expect(rows(parseChatSummary('```md\n- Vite\n```\nAfter the code.'))).toEqual([
+      ['snippet', 'md snippet', '- Vite'],
+      ['fact', 'After the code.', ''],
+    ])
+  })
+
+  it('ignores blank lines before and after a wrapping fence', () => {
+    expect(rows(parseChatSummary('\n  \n```md\n- Vite\n```\n\n\t\n'))).toEqual([['fact', 'Vite', '']])
+  })
+
+  it('does not unwrap an unclosed untagged fence, which stays one snippet', () => {
+    expect(rows(parseChatSummary('```\n- Vite\n- Postgres'))).toEqual([
+      ['snippet', 'Snippet', '- Vite\n- Postgres'],
+    ])
+  })
+
+  it('unwraps a four-backtick wrapper, and its inner three-backtick blocks become snippets', () => {
+    expect(rows(parseChatSummary('````md\n## Run\n```sh\nnpm test\n```\n````'))).toEqual([
+      ['snippet', 'Run', 'npm test'],
+    ])
+  })
+
+  it('does not unwrap a three-backtick wrapper that holds an inner bare fence', () => {
+    expect(rows(parseChatSummary('```md\n## Run\n```\nnpm test\n```\n```'))).toEqual([
+      ['snippet', 'md snippet', '## Run'],
+      ['fact', 'npm test', ''],
+    ])
+  })
+
+  it('unwraps a tilde wrapper that holds a backtick fence, which becomes a snippet', () => {
+    expect(rows(parseChatSummary('~~~md\n```ts\nconst a = 1\n```\n~~~'))).toEqual([
+      ['snippet', 'ts snippet', 'const a = 1'],
+    ])
+  })
+
+  it('reads the wrapped contents once, so a fence inside the wrapper stays a snippet', () => {
+    expect(rows(parseChatSummary('````md\n```md\n- Vite\n```\n````'))).toEqual([
+      ['snippet', 'md snippet', '- Vite'],
+    ])
+  })
+
+  it('flushes an indented wrapper to the left, so nested bullets keep their nesting', () => {
+    expect(rows(parseChatSummary('  ```md\n  - Vite\n    - sub\n  ```'))).toEqual([['fact', 'Vite', '- sub']])
+  })
+
+  it('flushes an indented wrapper to the left, so sibling bullets stay separate', () => {
+    expect(rows(parseChatSummary('  ```md\n  - Vite\n  - Postgres\n  ```'))).toEqual([
+      ['fact', 'Vite', ''],
+      ['fact', 'Postgres', ''],
+    ])
+    expect(rows(parseChatSummary('   ```md\n   - a\n   - b\n   ```'))).toEqual([
+      ['fact', 'a', ''],
+      ['fact', 'b', ''],
+    ])
+  })
+
+  it('does not read a backtick fence whose info string has a backtick as a fence', () => {
+    expect(rows(parseChatSummary('```md`\n- Vite\n```'))).toEqual([
+      ['fact', '```md`', ''],
+      ['fact', 'Vite', ''],
+    ])
+  })
+
+  it('does not unwrap a backtick fence whose info string has a backtick inside it', () => {
+    expect(rows(parseChatSummary('```md `x`\n- a\n```'))).toEqual([
+      ['fact', '```md `x`', ''],
+      ['fact', 'a', ''],
+    ])
+  })
+
+  it('gives no drafts and no cut for an empty or blank wrapper', () => {
+    for (const input of ['```md\n```', '```\n\n  \n```', '```text\n```', '````\n\n````']) {
+      expect(parseChatSummaryDetailed(input)).toEqual({ drafts: [], truncated: null })
+    }
+  })
+
+  it('unwraps CRLF and bare CR input the same as LF', () => {
+    const lf = '```markdown\n## Stack\n- Vite\n- Postgres: version 16\n```\n'
+    const expectedRows = rows(parseChatSummary(lf))
+    expect(rows(parseChatSummary(lf.replace(/\n/g, '\r\n')))).toEqual(expectedRows)
+    expect(rows(parseChatSummary(lf.replace(/\n/g, '\r')))).toEqual(expectedRows)
+    expect(expectedRows).toEqual([
+      ['fact', 'Vite', ''],
+      ['fact', 'Postgres', 'version 16'],
+    ])
+  })
+
+  it('applies the draft cap to the text inside a wrapper', () => {
+    const bullets = Array.from({ length: 5_000 }, (_, i) => `- item ${i}`).join('\n')
+    const wrapped = parseChatSummaryDetailed(`\`\`\`md\n${bullets}\n\`\`\``)
+    expect(wrapped.drafts).toHaveLength(MAX_DRAFTS)
+    expect(wrapped.truncated).toBe('drafts')
+    expect(wrapped).toEqual(parseChatSummaryDetailed(bullets))
+  })
+
+  it('applies the character cap to the text inside a wrapper, as it does unwrapped', () => {
+    const input = `- head\n${Array.from({ length: 30_000 }, (_, i) => `  line ${i}`).join('\n')}`
+    const wrapped = parseChatSummaryDetailed(`\`\`\`\n${input}\n\`\`\``)
+    expect(wrapped.truncated).toBe('chars')
+    expect(wrapped).toEqual(parseChatSummaryDetailed(input))
+  })
+
+  it('refuses a wrapper whose inner text is one line longer than the cap', () => {
+    expect(parseChatSummaryDetailed(`\`\`\`md\n${'x'.repeat(250_000)}\n\`\`\``)).toEqual({
+      drafts: [],
+      truncated: 'line',
+    })
   })
 })
 

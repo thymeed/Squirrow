@@ -174,6 +174,73 @@ const unindent = (line: string, width: number): string => {
   return line.slice(Math.min(lead, width))
 }
 
+/** Info-string words that let a whole-paste fence read as plain text. An empty word means no language. */
+const TEXT_FENCE_LANGS: readonly string[] = ['', 'md', 'markdown', 'text']
+
+/**
+ * If the whole paste is one code fence with no language, or with md, markdown or text, returns the text inside it,
+ * flush left. Otherwise returns the paste as it is. Blank lines around the fence are ignored, and the paste is
+ * already normalized to LF.
+ *
+ * The fence must open on the first non-blank line and close on the last one, by the usual closing rule. A closing
+ * line earlier in the paste means the paste is not wrapped, so a wrapper that reuses the inner fence length is not
+ * unwrapped. Only lines up to that closer are read. An unclosed fence is not unwrapped.
+ */
+function unwrapFence(text: string): string {
+  // The opener is the first non-blank line. openEnd is where that line ends, or -1 when the paste is blank.
+  let at = 0
+  let openEnd = -1
+  let open = ''
+  while (at < text.length) {
+    const nl = text.indexOf('\n', at)
+    const end = nl === -1 ? text.length : nl
+    const line = text.slice(at, end)
+    if (line.trim() !== '') {
+      open = line
+      openEnd = end
+      break
+    }
+    at = end + 1
+  }
+  const fence = openEnd === -1 ? null : FENCE_OPEN.exec(open)
+  if (!fence || (fence[2]!.startsWith('`') && fence[3]!.includes('`'))) return text
+  const lang = (fence[3]!.trim().split(/\s+/)[0] ?? '').toLowerCase()
+  if (!TEXT_FENCE_LANGS.includes(lang)) return text
+
+  const marker = fence[2]!
+  const isCloser = (line: string): boolean => {
+    const close = FENCE_CLOSE.exec(line)
+    return close !== null && close[1]![0] === marker[0] && close[1]!.length >= marker.length
+  }
+  // The closer is the last non-blank line. It must be a line after the opener, not the opener itself.
+  let closeStart = -1
+  let closeEnd = text.length
+  while (closeEnd > openEnd) {
+    const begin = text.lastIndexOf('\n', closeEnd - 1) + 1
+    if (text.slice(begin, closeEnd).trim() !== '') {
+      closeStart = begin
+      break
+    }
+    closeEnd = begin - 1
+  }
+  if (closeStart <= openEnd || !isCloser(text.slice(closeStart, closeEnd))) return text
+  // An earlier closing line means the first fence ends there, and text after it means the paste is not one fence.
+  for (at = openEnd + 1; at < closeStart;) {
+    const nl = text.indexOf('\n', at)
+    if (isCloser(text.slice(at, nl))) return text
+    at = nl + 1
+  }
+
+  const inner = closeStart === openEnd + 1 ? '' : text.slice(openEnd + 1, closeStart - 1)
+  const width = fence[1]!.length
+  return width === 0
+    ? inner
+    : inner
+        .split('\n')
+        .map((l) => unindent(l, width))
+        .join('\n')
+}
+
 /**
  * Splits pasted chat text into draft entries. Heuristics only, and it never throws.
  *
@@ -189,6 +256,8 @@ const unindent = (line: string, width: number): string => {
  *   just above it (if short), else the section heading, else "<language> snippet", else "Snippet".
  *   That line is used as the title, so it is not also a paragraph. A fence indented inside a bullet is a
  *   snippet too, and it is not part of the bullet's body. An unclosed fence runs to the end of the input.
+ * - A paste that is one fence with no language, or with md, markdown or text, is read as the text inside it,
+ *   as in unwrapFence. That happens first, before the caps below, so the caps apply to the text inside.
  * - Titles longer than 80 characters are cut at a sentence end or word break, with an ellipsis. The
  *   full first line goes to the body, so nothing is lost.
  * - Bullets with no text are skipped. Input past MAX_INPUT_CHARS is cut at the last line break before the
@@ -198,7 +267,7 @@ const unindent = (line: string, width: number): string => {
  */
 export function parseChatSummaryDetailed(text: string): ChatSummary {
   if (typeof text !== 'string') return { drafts: [], truncated: null }
-  const normal = text.replace(/\r\n?/g, '\n')
+  const normal = unwrapFence(text.replace(/\r\n?/g, '\n'))
   const charsCut = normal.length > MAX_INPUT_CHARS
   // The last line break at or before the cap. Lines before it are whole, so the line cut by the cap is dropped.
   const kept = charsCut ? normal.slice(0, Math.max(normal.lastIndexOf('\n', MAX_INPUT_CHARS), 0)) : normal
