@@ -8,7 +8,14 @@ import {
   shouldShowBackupNudge,
   writeStoredTime,
 } from '../src/core/backup'
-import { buildContext, estimateTokens, selectContext } from '../src/core/inject'
+import {
+  buildContext,
+  estimateTokens,
+  loadTokenCounter,
+  makeTokenCounterLoader,
+  selectContext,
+  type TokenCounter,
+} from '../src/core/inject'
 import { MAX_IMPORT_CHARS, exportJson, exportMarkdown, parseSnapshot } from '../src/core/portability'
 import { createIndexedDbRepository } from '../src/core/repository'
 import { filterByKinds, scoreTask, searchEntries } from '../src/core/search'
@@ -263,6 +270,77 @@ describe('selectContext', () => {
     const backward = pick([...all].reverse(), 'postgres', 60)
     expect(titles(backward.included)).toEqual(titles(forward.included))
     expect(titles(backward.dropped)).toEqual(titles(forward.dropped))
+  })
+  it('measures with the counter it is given, so a different counter picks a different set', () => {
+    const words: TokenCounter = (text) => text.split(/\s+/).filter(Boolean).length
+    const titlesWith = (budget: number, count?: TokenCounter) =>
+      titles(selectContext(project, all, 'postgres', budget, new Set(), count).included)
+    const budgets = Array.from({ length: 60 }, (_, i) => i * 5 + 5)
+    expect(budgets.some((b) => titlesWith(b, words).join() !== titlesWith(b).join())).toBe(true)
+    for (const budget of budgets) {
+      const result = selectContext(project, all, 'postgres', budget, new Set(), words)
+      expect(result.tokens).toBe(words(buildContext(project, result.included)))
+      expect(result.overBudget || result.tokens <= budget).toBe(true)
+    }
+  })
+  it('uses the estimate when no counter is given, exactly as it did before', () => {
+    for (const budget of [40, 80, 200, 400]) {
+      expect(selectContext(project, all, 'postgres', budget, new Set())).toEqual(
+        selectContext(project, all, 'postgres', budget, new Set(), estimateTokens),
+      )
+    }
+  })
+})
+
+describe('token counting', () => {
+  const failing = async (): Promise<never> => {
+    throw new Error('offline')
+  }
+  const seven = async () => ({ countTokens: () => 7 })
+
+  it('counts a known sentence with the o200k tokenizer, not the 4-character estimate', async () => {
+    const counter = await loadTokenCounter()
+    expect(counter).not.toBeNull()
+    const sentence = 'The quick brown fox jumps over the lazy dog.'
+    expect(counter!(sentence)).toBe(10)
+    expect(counter!(sentence)).not.toBe(estimateTokens(sentence))
+    expect(counter!('')).toBe(0)
+  })
+  it('counts special-token text as plain text instead of throwing', async () => {
+    const counter = await loadTokenCounter()
+    expect(counter!('<|endoftext|> hi')).toBe(8)
+  })
+  it('resolves to null instead of throwing when the tokenizer cannot load', async () => {
+    await expect(makeTokenCounterLoader(failing)()).resolves.toBeNull()
+  })
+  it('loads the tokenizer once and reuses it', async () => {
+    let calls = 0
+    const load = makeTokenCounterLoader(async () => {
+      calls += 1
+      return seven()
+    })
+    const [first, second] = await Promise.all([load(), load()])
+    expect(first).toBe(second)
+    expect(calls).toBe(1)
+  })
+  it('tries again after a failed load instead of remembering the failure', async () => {
+    let calls = 0
+    const load = makeTokenCounterLoader(async () => {
+      calls += 1
+      if (calls === 1) return failing()
+      return seven()
+    })
+    expect(await load()).toBeNull()
+    expect((await load())!('anything')).toBe(7)
+    expect(calls).toBe(2)
+  })
+  it('falls back to the estimate for a text the tokenizer rejects', async () => {
+    const counter = await makeTokenCounterLoader(async () => ({
+      countTokens: () => {
+        throw new Error('nope')
+      },
+    }))()
+    expect(counter!('abcdefgh')).toBe(estimateTokens('abcdefgh'))
   })
 })
 

@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FIRST_ENTRY_SEEN_KEY, LAST_EXPORT_KEY } from '../src/core/backup'
+import { estimateTokens, type TokenCounter } from '../src/core/inject'
 import type { EntryKind } from '../src/core/types'
 import { App } from '../src/ui/App'
 import { useUpdateReady } from '../src/ui/useUpdateReady'
@@ -11,6 +12,22 @@ declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+// Each App mount asks for the tokenizer once. Tests settle that request with `finish`, so a
+// test decides whether the real count, the estimate, or a fake counter is in use.
+const tokenizer = vi.hoisted(() => ({
+  finish: (_counter: TokenCounter | null) => {},
+}))
+vi.mock('../src/core/inject', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/core/inject')>()
+  return {
+    ...actual,
+    loadTokenCounter: () =>
+      new Promise<TokenCounter | null>((resolve) => {
+        tokenizer.finish = resolve
+      }),
+  }
+})
 
 let root: Root
 let host: HTMLDivElement
@@ -713,5 +730,76 @@ describe('backup reminder', () => {
     localStorage.setItem(LAST_EXPORT_KEY, String(Date.now() - 15 * DAY))
     await reload()
     expect(banner()).not.toBeNull()
+  })
+})
+
+describe('token counts', () => {
+  // A stand-in counter that is clearly different from the 4-character estimate.
+  const words = (text: string) => text.split(/\s+/).filter(Boolean).length
+  const caption = () => host.querySelector('.inject p .hint')?.textContent
+  const exact = () => text().includes('GPT-style count')
+  const shownCount = () => Number(host.querySelector('.inject p')!.textContent!.match(/~(\d+) tokens/)![1])
+
+  async function copiedText() {
+    const writeText = vi.fn(async (_text: string) => {})
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    await click(button('Copy to clipboard'))
+    return writeText.mock.calls[0]![0]
+  }
+
+  it('shows the estimate, labelled as one, until the tokenizer has loaded', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    await tick('Use Postgres')
+    const written = await copiedText()
+    expect(caption()).toBe('estimate')
+    expect(shownCount()).toBe(estimateTokens(written))
+  })
+
+  it('shows and copies the tokenizer count once it loads, labelled GPT-style', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    await tick('Use Postgres')
+    tokenizer.finish(words)
+    await until(exact)
+    const written = await copiedText()
+    expect(words(written)).not.toBe(estimateTokens(written))
+    expect(shownCount()).toBe(words(written))
+    expect(text()).toContain(`Copied ~${words(written)} tokens`)
+  })
+
+  it('keeps the estimate when the tokenizer fails to load', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    await tick('Use Postgres')
+    tokenizer.finish(null)
+    const written = await copiedText()
+    expect(caption()).toBe('estimate')
+    expect(shownCount()).toBe(estimateTokens(written))
+  })
+
+  it('auto-picks with the loaded count, so an entry the estimate would drop fits', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    await addEntry('Big notes', 'x'.repeat(4000))
+    tokenizer.finish(words)
+    await until(exact)
+    await choose(modelSelect(), 'custom')
+    await act(async () => type(customInput(), '2000'))
+    await click(button('Auto-pick'))
+    await until(() => text().includes('2 of 2 included'))
+    expect(host.querySelector('.budget-result .hint')!.textContent).toContain('GPT-style count')
+  })
+
+  it('auto-picks with the estimate when the tokenizer fails, and labels it so', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    await addEntry('Big notes', 'x'.repeat(4000))
+    tokenizer.finish(null)
+    await choose(modelSelect(), 'custom')
+    await act(async () => type(customInput(), '2000'))
+    await click(button('Auto-pick'))
+    await until(() => text().includes('1 of 2 included'))
+    expect(host.querySelector('.budget-result .hint')!.textContent).toBe('estimate')
   })
 })

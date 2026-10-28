@@ -2,8 +2,45 @@ import { afterLabel, fenceBlock, oneLine } from './markdown'
 import { scoreTask } from './search'
 import type { Entry, EntryKind, Id, Project } from './types'
 
-/** Rough heuristic: about 4 characters per token for English text. */
+/** Rough heuristic: about 4 characters per token for English text. Used when the real counter is not loaded. */
 export const estimateTokens = (text: string): number => Math.ceil(text.length / 4)
+
+export type TokenCounter = (text: string) => number
+
+interface TokenizerModule {
+  countTokens: (text: string, options?: { disallowedSpecial: Set<string> }) => number
+}
+
+/**
+ * Builds a loader that imports the tokenizer once and then returns the same promise.
+ * A failed import resolves to null and is not remembered, so a later call tries again.
+ */
+export function makeTokenCounterLoader(
+  importer: () => Promise<TokenizerModule>,
+): () => Promise<TokenCounter | null> {
+  let pending: Promise<TokenCounter | null> | undefined
+  return () => {
+    pending ??= importer().then(
+      (tokenizer): TokenCounter =>
+        (text) => {
+          try {
+            // Special-token text such as "<|endoftext|>" is plain text in a chat, so count it as such.
+            return tokenizer.countTokens(text, { disallowedSpecial: new Set() })
+          } catch {
+            return estimateTokens(text)
+          }
+        },
+      () => {
+        pending = undefined
+        return null
+      },
+    )
+    return pending
+  }
+}
+
+/** The o200k tokenizer: exact for recent GPT models, approximate for Claude and Gemini. */
+export const loadTokenCounter = makeTokenCounterLoader(() => import('gpt-tokenizer/encoding/o200k_base'))
 
 const HEADINGS: Record<EntryKind, string> = {
   fact: 'Facts',
@@ -53,7 +90,7 @@ export interface Selection {
 /**
  * Pinned entries always go in. Other entries follow the ranking and are added while the
  * measured context still fits the budget. An entry that does not fit is dropped, and the
- * fill keeps trying smaller ones after it.
+ * fill keeps trying smaller ones after it. `count` measures tokens; it defaults to the estimate.
  */
 export function selectContext(
   project: Project,
@@ -61,6 +98,7 @@ export function selectContext(
   query: string,
   budget: number,
   pinned: ReadonlySet<Id>,
+  count: TokenCounter = estimateTokens,
 ): Selection {
   const scores = scoreTask(entries, query)
   const score = (e: Entry) => scores.get(e.id) ?? 0
@@ -73,7 +111,7 @@ export function selectContext(
       b.updatedAt - a.updatedAt ||
       byId(a, b),
   )
-  const tokensOf = (list: Entry[]) => estimateTokens(buildContext(project, list))
+  const tokensOf = (list: Entry[]) => count(buildContext(project, list))
 
   const forced = ranked.filter((e) => pinned.has(e.id))
   const forcedTokens = tokensOf(forced)
