@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from 'react'
 import {
   LAST_EXPORT_KEY,
   FIRST_ENTRY_SEEN_KEY,
@@ -684,6 +684,26 @@ export function App() {
   )
 }
 
+/**
+ * Handlers for a dialog's overlay. The overlay closes only when the press also started on the overlay.
+ * A text-selection drag that starts inside the form and ends on the overlay fires a click on the overlay,
+ * and that click must not close the dialog. Every mousedown overwrites the record, so a press that never
+ * got a click cannot leave a stale value behind.
+ */
+function useOverlayDismiss(onCancel: () => void) {
+  const pressedOnOverlay = useRef(false)
+  return {
+    onMouseDown: (e: MouseEvent<HTMLDivElement>) => {
+      pressedOnOverlay.current = e.target === e.currentTarget
+    },
+    onClick: () => {
+      const started = pressedOnOverlay.current
+      pressedOnOverlay.current = false
+      if (started) onCancel()
+    },
+  }
+}
+
 function EntryDialog(props: {
   initial: Partial<Entry>
   onCancel: () => void
@@ -694,8 +714,9 @@ function EntryDialog(props: {
   const [body, setBody] = useState(props.initial.body ?? '')
   const [error, setError] = useState('')
   const titleRef = useRef<HTMLInputElement>(null)
+  const overlay = useOverlayDismiss(props.onCancel)
   return (
-    <div className="overlay" onClick={props.onCancel}>
+    <div className="overlay" {...overlay}>
       <form
         role="dialog"
         aria-label="Entry"
@@ -782,6 +803,8 @@ function ImportDialog(props: {
   const formRef = useRef<HTMLFormElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const reviewing = cards !== null
+  // onCancel is the parent's guarded handler, so an overlay click during a save does nothing here either.
+  const overlay = useOverlayDismiss(props.onCancel)
 
   useEffect(() => {
     if (reviewing) headingRef.current?.focus()
@@ -832,7 +855,7 @@ function ImportDialog(props: {
   }
 
   return (
-    <div className="overlay" onClick={props.onCancel}>
+    <div className="overlay" {...overlay}>
       <form
         ref={formRef}
         className="import"

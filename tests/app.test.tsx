@@ -53,6 +53,10 @@ const button = (label: string) => {
 
 const click = (el: HTMLElement) => act(async () => el.click())
 
+/** Dispatches a bubbling mouse event on exactly this element, the way a real press does. */
+const mouseEvent = (el: Element, type: 'mousedown' | 'click') =>
+  act(async () => el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true })))
+
 /** The Save button of the open entry dialog. The page also has a "Save pick" button, so plain text would be ambiguous. */
 const dialogSave = () => {
   const found = [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
@@ -1369,11 +1373,34 @@ describe('import from chat', () => {
     expect(host.querySelector<HTMLInputElement>('.draft-list li input')!.disabled).toBe(true)
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-      host.querySelector<HTMLElement>('.overlay')!.click()
+      // A real press on the overlay, then the click, so the overlay path reaches the saving guard.
+      const overlay = host.querySelector<HTMLElement>('.overlay')!
+      overlay.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+      overlay.click()
     })
     expect(host.querySelector('[role="dialog"]')).not.toBeNull()
     await until(() => !host.querySelector('[role="dialog"]'))
     expect(shown()).toEqual(['Alpha', 'Beta'])
+  })
+
+  it('keeps the dialog open after a press and click on the overlay during a save that then failed', async () => {
+    await addProject('Demo')
+    await paste('- Alpha')
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(() => {
+      throw new Error('disk full')
+    })
+    act(() => importButton('Save 1 entry').click())
+    // The press and the click land while the save is pending. The guard keeps the dialog open, and the click resets the press record.
+    act(() => {
+      const overlay = host.querySelector<HTMLElement>('.overlay')!
+      overlay.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+      overlay.click()
+    })
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+    await until(() => text().includes('then this failed'))
+    // The save has stopped and the dialog is still open. A click with no press before it must not close it.
+    await mouseEvent(host.querySelector('.overlay')!, 'click')
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
   })
 
   it('closes on Esc again once a failed save has stopped', async () => {
@@ -1406,5 +1433,41 @@ describe('import from chat', () => {
     expect(host.querySelector('[role="dialog"] [role="status"]')!.textContent).toBe(
       'Only the first 200,000 characters were read, up to the last whole line; the rest of the paste was skipped.',
     )
+  })
+})
+
+// A drag that selects text in the form and ends on the overlay fires a click on the overlay. Both dialogs
+// must ignore that click, and still close on a plain overlay click.
+describe.each([
+  { name: 'entry', open: () => click(button('+ Entry')), field: 'input[placeholder="Title"]' },
+  { name: 'import', open: () => click(button('Import from chat')), field: '[role="dialog"] textarea' },
+])('$name dialog overlay', ({ open, field }) => {
+  beforeEach(async () => {
+    await addProject('Demo')
+    await open()
+  })
+
+  it('stays open when the press starts in the form and the click lands on the overlay', async () => {
+    const input = host.querySelector<HTMLInputElement | HTMLTextAreaElement>(field)!
+    await act(async () => type(input, 'Keep this'))
+    await mouseEvent(input, 'mousedown')
+    await mouseEvent(host.querySelector('.overlay')!, 'click')
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(input.value).toBe('Keep this')
+  })
+
+  it('closes when the press starts on the overlay and the click is on the overlay', async () => {
+    const overlay = host.querySelector('.overlay')!
+    await mouseEvent(overlay, 'mousedown')
+    await mouseEvent(overlay, 'click')
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('does not close on a later overlay click after a press on the overlay that never got a click', async () => {
+    const overlay = host.querySelector('.overlay')!
+    await mouseEvent(overlay, 'mousedown')
+    await mouseEvent(host.querySelector(field)!, 'mousedown')
+    await mouseEvent(overlay, 'click')
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
   })
 })
