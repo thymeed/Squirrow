@@ -8,13 +8,7 @@ import {
   shouldShowBackupNudge,
   writeStoredTime,
 } from '../core/backup'
-import {
-  MAX_DRAFTS,
-  MAX_INPUT_CHARS,
-  parseChatSummaryDetailed,
-  type Draft,
-  type Truncation,
-} from '../core/chatImport'
+import { MAX_DRAFTS, MAX_INPUT_CHARS, parseChatSummaryDetailed, type Draft } from '../core/chatImport'
 import {
   buildContext,
   estimateTokens,
@@ -754,7 +748,11 @@ function EntryDialog(props: {
   )
 }
 
-const NOTHING_TO_IMPORT = 'Nothing to import. Paste a chat summary with headings, bullets or code blocks.'
+const NOTHING_TO_IMPORT =
+  'Nothing to import. Paste a chat summary with headings, bullets, paragraphs or code blocks.'
+
+/** Shown on the paste step when no whole line fits within the character cap, so nothing was read. */
+const TOO_LONG_LINE = `This paste has a single line longer than ${MAX_INPUT_CHARS.toLocaleString('en-US')} characters, so nothing was imported. Break it into shorter lines or paragraphs and paste it again.`
 
 /** Shown on the review step when a cap cut the paste short. */
 const CUT_MESSAGE: Record<'drafts' | 'chars', string> = {
@@ -780,7 +778,7 @@ function ImportDialog(props: {
   const [attempted, setAttempted] = useState(false)
   const [saving, setSaving] = useState(false)
   const [failure, setFailure] = useState('')
-  const [cut, setCut] = useState<Truncation>(null)
+  const [cut, setCut] = useState<'drafts' | 'chars' | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const reviewing = cards !== null
@@ -792,9 +790,10 @@ function ImportDialog(props: {
   const preview = (e: FormEvent) => {
     e.preventDefault()
     const { drafts, truncated } = parseChatSummaryDetailed(text)
-    setCut(truncated)
+    // The too-long case has its own message on this step, and no review step, so it is not kept as a cut.
+    setCut(truncated === 'line' ? null : truncated)
     if (drafts.length === 0) {
-      setMessage(NOTHING_TO_IMPORT)
+      setMessage(truncated === 'line' ? TOO_LONG_LINE : NOTHING_TO_IMPORT)
       return
     }
     setMessage('')

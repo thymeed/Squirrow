@@ -1199,8 +1199,52 @@ describe('import from chat', () => {
   it('says nothing to import when the paste has only headings', async () => {
     await addProject('Demo')
     await paste('## Plan\n## Details')
-    expect(text()).toContain('Nothing to import. Paste a chat summary with headings, bullets or code blocks.')
+    expect(text()).toContain(
+      'Nothing to import. Paste a chat summary with headings, bullets, paragraphs or code blocks.',
+    )
     expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+  })
+
+  it('says in the paste-step hint that paragraphs are recognized', async () => {
+    await addProject('Demo')
+    await click(button('Import from chat'))
+    const hint = host.querySelector('[role="dialog"] p.hint')!.textContent
+    expect(hint).toContain('paragraphs')
+    expect(hint).toContain('code blocks')
+  })
+
+  it('refuses a paste with one line longer than the cap, and keeps the text on the paste step', async () => {
+    await addProject('Demo')
+    await click(button('Import from chat'))
+    const area = host.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!
+    await act(async () => type(area, 'x'.repeat(250_000)))
+    await click(importButton('Preview'))
+    const alert = host.querySelector('[role="dialog"] [role="alert"]')!
+    expect(alert.textContent).toBe(
+      'This paste has a single line longer than 200,000 characters, so nothing was imported. Break it into shorter lines or paragraphs and paste it again.',
+    )
+    expect(text()).not.toContain('Nothing to import')
+    expect(host.querySelector('[role="dialog"] textarea')).toBe(area)
+    expect(area.value.length).toBe(250_000)
+    expect(host.querySelector('.draft-list')).toBeNull()
+  })
+
+  it('says nothing to import, not the too-long message, for blank input past the cap', async () => {
+    await addProject('Demo')
+    await paste(' '.repeat(250_000))
+    expect(host.querySelector('[role="dialog"] [role="alert"]')!.textContent).toBe(
+      'Nothing to import. Paste a chat summary with headings, bullets, paragraphs or code blocks.',
+    )
+    expect(text()).not.toContain('single line longer')
+  })
+
+  it('shows neither message for a normal paste', async () => {
+    await addProject('Demo')
+    await paste('- Vite for the build')
+    expect(draftTitles()).toEqual(['Vite for the build'])
+    expect(text()).not.toContain('Nothing to import')
+    expect(text()).not.toContain('single line longer')
+    expect(host.querySelector('[role="dialog"] [role="alert"]')).toBeNull()
   })
 
   it('Enter in a draft title does not save, and the dialog keeps the drafts', async () => {

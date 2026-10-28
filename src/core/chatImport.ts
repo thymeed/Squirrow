@@ -88,8 +88,11 @@ export const MAX_INPUT_CHARS = 200_000
 /** Drafts past this count are dropped. */
 export const MAX_DRAFTS = 200
 
-/** Which cap cut the paste short, or null when neither did. */
-export type Truncation = 'drafts' | 'chars' | null
+/**
+ * Which cap cut the paste short, or null when neither did. 'line' means the paste has text, but no whole line
+ * fits within MAX_INPUT_CHARS, so nothing is read and the paste is refused.
+ */
+export type Truncation = 'drafts' | 'chars' | 'line' | null
 
 export interface ChatSummary {
   drafts: Draft[]
@@ -190,6 +193,8 @@ const unindent = (line: string, width: number): string => {
  *   full first line goes to the body, so nothing is lost.
  * - Bullets with no text are skipped. Input past MAX_INPUT_CHARS is cut at the last line break before the
  *   cap, and drafts past MAX_DRAFTS are dropped. Either one sets `truncated`, so the caller can say so.
+ * - If no whole line fits in the cap, the paste has text, and it is past the cap, nothing is read and
+ *   `truncated` is 'line'. Blank input past the cap is not this case. It gives no drafts and 'chars'.
  */
 export function parseChatSummaryDetailed(text: string): ChatSummary {
   if (typeof text !== 'string') return { drafts: [], truncated: null }
@@ -197,6 +202,7 @@ export function parseChatSummaryDetailed(text: string): ChatSummary {
   const charsCut = normal.length > MAX_INPUT_CHARS
   // The last line break at or before the cap. Lines before it are whole, so the line cut by the cap is dropped.
   const kept = charsCut ? normal.slice(0, Math.max(normal.lastIndexOf('\n', MAX_INPUT_CHARS), 0)) : normal
+  if (charsCut && kept.trim() === '' && normal.trim() !== '') return { drafts: [], truncated: 'line' }
   const lines = kept.split('\n')
   const drafts: Draft[] = []
   let overflow = false
@@ -264,6 +270,8 @@ export function parseChatSummaryDetailed(text: string): ChatSummary {
   }
 
   for (let i = 0; i < lines.length; i++) {
+    // Once a draft past the cap is found, the drafts are final. Reading on would only be wasted work.
+    if (overflow) break
     const line = lines[i]!
 
     if (line.trim() === '') {

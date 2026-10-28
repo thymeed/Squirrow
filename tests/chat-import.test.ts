@@ -108,7 +108,7 @@ describe('parseChatSummary: bullets', () => {
     expect(parseChatSummary(input).map((d) => [d.title, d.body])).toEqual([[input.slice(2), '']])
   })
 
-  it('splits a loose paragraph whose colon is followed by a space', () => {
+  it('keeps the loose paragraph "Meeting at 10:30: bring notes" whole, because its colon is not a label', () => {
     expect(rows(parseChatSummary('Meeting at 10:30: bring notes'))).toEqual([
       ['fact', 'Meeting at 10:30: bring notes', ''],
     ])
@@ -530,6 +530,44 @@ describe('parseChatSummaryDetailed: caps', () => {
     const input = Array.from({ length: 20_000 }, (_, i) => `- item ${i}`).join('\n')
     expect(input.length).toBeGreaterThan(MAX_INPUT_CHARS)
     expect(parseChatSummaryDetailed(input).truncated).toBe('drafts')
+  })
+
+  it('keeps the first drafts and the drafts flag when a bullet and an open fence follow the cap', () => {
+    const bullets = Array.from({ length: MAX_DRAFTS + 3 }, (_, i) => `- item ${i}`)
+    const { drafts, truncated } = parseChatSummaryDetailed([...bullets, '```ts', 'const a = 1'].join('\n'))
+    expect(drafts.map((d) => d.title)).toEqual(Array.from({ length: MAX_DRAFTS }, (_, i) => `item ${i}`))
+    expect(truncated).toBe('drafts')
+  })
+
+  it('gives many short lines past the cap their drafts and the chars flag, as before', () => {
+    // 200 entries of about 1,300 characters each. Only the first 200,000 characters are read, so some drafts remain.
+    const entry = (i: number) =>
+      [`- item ${i}`, ...Array.from({ length: 130 }, (_, k) => `  note ${k}`)].join('\n')
+    const input = Array.from({ length: 200 }, (_, i) => entry(i)).join('\n')
+    expect(input.length).toBeGreaterThan(250_000)
+    const { drafts, truncated } = parseChatSummaryDetailed(input)
+    expect(truncated).toBe('chars')
+    expect(drafts.length).toBeGreaterThan(0)
+    expect(drafts.length).toBeLessThan(MAX_DRAFTS)
+    expect(drafts.at(-1)!.title).toBe(`item ${drafts.length - 1}`)
+  })
+
+  it('refuses a single line longer than the cap, with no drafts and the line flag', () => {
+    expect(parseChatSummaryDetailed('x'.repeat(250_000))).toEqual({ drafts: [], truncated: 'line' })
+    expect(parseChatSummaryDetailed('- ' + 'word '.repeat(50_000))).toEqual({ drafts: [], truncated: 'line' })
+    expect(parseChatSummaryDetailed('\n' + 'x'.repeat(250_000))).toEqual({ drafts: [], truncated: 'line' })
+    expect(parseChatSummaryDetailed('   \n' + 'x'.repeat(250_000))).toEqual({ drafts: [], truncated: 'line' })
+  })
+
+  it('does not use the line flag for blank input past the cap, which gives no drafts and the chars flag', () => {
+    expect(parseChatSummaryDetailed(' '.repeat(250_000))).toEqual({ drafts: [], truncated: 'chars' })
+    expect(parseChatSummaryDetailed('\n'.repeat(250_000))).toEqual({ drafts: [], truncated: 'chars' })
+  })
+
+  it('does not refuse a paste past the cap when a whole line fits before it', () => {
+    const { drafts, truncated } = parseChatSummaryDetailed(`- kept\n${'x'.repeat(250_000)}`)
+    expect(truncated).toBe('chars')
+    expect(drafts).toEqual([{ kind: 'fact', title: 'kept', body: '' }])
   })
 
   it('parseChatSummary returns the same drafts as the detailed parser', () => {
