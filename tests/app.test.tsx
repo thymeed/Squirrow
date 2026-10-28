@@ -1,4 +1,4 @@
-import { IDBFactory } from 'fake-indexeddb'
+import { IDBFactory, IDBObjectStore } from 'fake-indexeddb'
 import { openDB } from 'idb'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -1107,5 +1107,154 @@ describe('older tab', () => {
     older.close()
     await until(() => !text().includes(BLOCKED))
     expect(shown()).toEqual(['Legacy note'])
+  })
+})
+
+describe('import from chat', () => {
+  const SUMMARY = [
+    '## Stack',
+    '- Vite for the build',
+    '- We decided to use Postgres 16',
+    '- Drop me please',
+    '',
+    '## Files',
+    '- src/core/search.ts ranks entries',
+  ].join('\n')
+
+  /** A button of the open import dialog, matched by its exact label. */
+  const importButton = (label: string) => {
+    const found = [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+      (b) => b.textContent === label,
+    )
+    if (!found) throw new Error(`No "${label}" button in the import dialog`)
+    return found
+  }
+
+  /** The title inputs of the preview cards, in order. */
+  const draftTitles = () =>
+    [...host.querySelectorAll<HTMLInputElement>('.draft-list li input')].map((i) => i.value)
+
+  const paste = async (summary: string) => {
+    await click(button('Import from chat'))
+    await act(async () => type(host.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!, summary))
+    await click(importButton('Preview'))
+  }
+
+  it('saves exactly the kept drafts, with the titles and kinds chosen in the preview', async () => {
+    await addProject('Demo')
+    await paste(SUMMARY)
+    expect(text()).toContain('4 drafts')
+    expect(draftTitles()).toEqual([
+      'Vite for the build',
+      'We decided to use Postgres 16',
+      'Drop me please',
+      'src/core/search.ts ranks entries',
+    ])
+    expect([...host.querySelectorAll<HTMLSelectElement>('.draft-list select')].map((s) => s.value)).toEqual([
+      'fact',
+      'decision',
+      'fact',
+      'file-note',
+    ])
+
+    await act(async () => type(host.querySelectorAll<HTMLInputElement>('.draft-list li input')[0]!, 'Vite 5'))
+    await choose(host.querySelectorAll<HTMLSelectElement>('.draft-list select')[0]!, 'preference')
+    await click(host.querySelector<HTMLButtonElement>('[aria-label="Drop draft 3"]')!)
+    expect(draftTitles()).toEqual([
+      'Vite 5',
+      'We decided to use Postgres 16',
+      'src/core/search.ts ranks entries',
+    ])
+
+    await click(importButton('Save 3 entries'))
+    await until(() => !host.querySelector('[role="dialog"]'))
+    expect(shown()).toEqual(['Vite 5', 'We decided to use Postgres 16', 'src/core/search.ts ranks entries'])
+    expect([...host.querySelectorAll('.entries li')].map((li) => li.className)).toEqual([
+      'kind-preference',
+      'kind-decision',
+      'kind-file-note',
+    ])
+    expect(text()).toContain('Imported 3 entries.')
+  })
+
+  it('appends to the entries already in the project and leaves them as they were', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16', 'decision')
+    await paste('- Vite for the build')
+    await click(importButton('Save 1 entry'))
+    await until(() => !host.querySelector('[role="dialog"]'))
+    expect(shown()).toEqual(['Use Postgres', 'Vite for the build'])
+    expect(host.querySelector('.entries li.kind-decision p')!.textContent).toBe('version 16')
+  })
+
+  it('closes on Esc without saving anything', async () => {
+    await addProject('Demo')
+    await paste(SUMMARY)
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })))
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
+    expect(shown()).toEqual([])
+  })
+
+  it('says nothing to import when the paste has no headings, bullets or code', async () => {
+    await addProject('Demo')
+    await paste('Just a plain sentence with no structure.')
+    expect(text()).toContain('Nothing to import. Paste a chat summary with headings, bullets or code blocks.')
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+  })
+
+  it('disables Save once every draft is dropped', async () => {
+    await addProject('Demo')
+    await paste('- One\n- Two')
+    await click(host.querySelector<HTMLButtonElement>('[aria-label="Drop draft 1"]')!)
+    await click(host.querySelector<HTMLButtonElement>('[aria-label="Drop draft 1"]')!)
+    expect(importButton('Save 0 entries').disabled).toBe(true)
+    expect(text()).toContain('Every draft is dropped')
+  })
+
+  it('blocks a draft with an empty title, marks it, and saves nothing until it has a title', async () => {
+    await addProject('Demo')
+    await paste('- Vite for the build\n- Drop me')
+    await act(async () => type(host.querySelector<HTMLInputElement>('.draft-list li input')!, ''))
+    await click(importButton('Save 2 entries'))
+    expect(text()).toContain('Title is required')
+    expect(host.querySelector('.draft-list input')!.getAttribute('aria-invalid')).toBe('true')
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(shown()).toEqual([])
+
+    await act(async () => type(host.querySelector<HTMLInputElement>('.draft-list li input')!, 'Vite'))
+    expect(text()).not.toContain('Title is required')
+    await click(importButton('Save 2 entries'))
+    await until(() => !host.querySelector('[role="dialog"]'))
+    expect(shown()).toEqual(['Vite', 'Drop me'])
+  })
+
+  it('stops on a failed save, says how many were saved, and keeps the rest to save again', async () => {
+    await addProject('Demo')
+    await paste('- Alpha\n- Beta\n- Gamma')
+    const realPut = IDBObjectStore.prototype.put
+    let writes = 0
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, ...args) {
+      writes++
+      if (writes === 2) throw new Error('disk full')
+      return realPut.apply(this, args as Parameters<IDBObjectStore['put']>)
+    })
+    await click(importButton('Save 3 entries'))
+    await until(() => text().includes('then this failed'))
+    expect(text()).toContain('Saved 1 of 3 entries, then this failed: disk full.')
+    expect(draftTitles()).toEqual(['Beta', 'Gamma'])
+    expect(shown()).toEqual(['Alpha'])
+
+    vi.restoreAllMocks()
+    await click(importButton('Save 2 entries'))
+    await until(() => !host.querySelector('[role="dialog"]'))
+    expect(shown()).toEqual(['Alpha', 'Beta', 'Gamma'])
+  })
+
+  it('is not offered until a project is open', async () => {
+    expect(
+      [...host.querySelectorAll('button')].some((b) => b.textContent?.includes('Import from chat')),
+    ).toBe(false)
+    await addProject('Demo')
+    expect(button('Import from chat')).toBeTruthy()
   })
 })

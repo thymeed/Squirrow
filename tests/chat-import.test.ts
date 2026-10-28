@@ -1,0 +1,293 @@
+import { describe, expect, it } from 'vitest'
+import { MAX_DRAFTS, MAX_INPUT_CHARS, parseChatSummary, type Draft } from '../src/core/chatImport'
+
+/** The drafts as plain [kind, title, body] rows, so a table reads at a glance. */
+const rows = (drafts: Draft[]) => drafts.map((d) => [d.kind, d.title, d.body])
+
+describe('parseChatSummary: sections and paragraphs', () => {
+  it.each<[string, string, [string, string, string][]]>([
+    ['headings only create nothing', '# Plan\n## Details\n### More', []],
+    [
+      'a heading with a plain paragraph becomes one fact',
+      '## Setup\n\nRun the dev server.',
+      [['fact', 'Setup', 'Run the dev server.']],
+    ],
+    [
+      'a paragraph under a heading that also has bullets is not imported',
+      '## Stack\nHere is what we use.\n- Vite\n- Postgres',
+      [
+        ['fact', 'Vite', ''],
+        ['fact', 'Postgres', ''],
+      ],
+    ],
+    [
+      'text before any heading is not imported',
+      'Here is a summary of our chat.\n\n## Stack\n- Vite',
+      [['fact', 'Vite', '']],
+    ],
+    ['an empty heading creates nothing', '#\n\n- Vite', [['fact', 'Vite', '']]],
+    ['"#tag" without a space is not a heading', '#tag is text', []],
+  ])('%s', (_name, input, expected) => {
+    expect(rows(parseChatSummary(input))).toEqual(expected)
+  })
+})
+
+describe('parseChatSummary: bullets', () => {
+  it.each<[string, string, string[]]>([
+    [
+      'dash, star, plus and numbered markers',
+      '- one\n* two\n+ three\n1. four\n2) five',
+      ['one', 'two', 'three', 'four', 'five'],
+    ],
+    ['bold text is stripped from the title', '- **Database** is Postgres', ['Database is Postgres']],
+    ['a bullet of only a marker is skipped', '-\n*\n- - -\n- Real one', ['Real one']],
+    [
+      'a bullet with no text but a body under it takes its title from that body',
+      '-\n  Use Postgres 16',
+      ['Use Postgres 16'],
+    ],
+    ['a hyphen with no digit is not a numbered bullet', '1.5 million users\n- two', ['two']],
+  ])('%s', (_name, input, titles) => {
+    expect(parseChatSummary(input).map((d) => d.title)).toEqual(titles)
+  })
+
+  it('keeps indented lines and nested bullets in the body', () => {
+    const drafts = parseChatSummary(
+      '- Stack summary\n  Vite for the build.\n  - sub one\n  - sub two\n- Next',
+    )
+    expect(rows(drafts)).toEqual([
+      ['fact', 'Stack summary', 'Vite for the build.\n- sub one\n- sub two'],
+      ['fact', 'Next', ''],
+    ])
+  })
+
+  it('keeps a lazy line right after a bullet in its body, and a blank line ends the bullet', () => {
+    const drafts = parseChatSummary('- Vite\nfast startup\n\nLoose words after a blank line')
+    expect(rows(drafts)).toEqual([['fact', 'Vite', 'fast startup']])
+  })
+
+  it.each<[string, string, [string, string]]>([
+    ['"Title: rest" splits at the colon', '- Database: Postgres 16', ['Database', 'Postgres 16']],
+    ['"**Title**: rest" splits after the bold', '- **Database**: Postgres 16', ['Database', 'Postgres 16']],
+    ['"**Title:** rest" splits inside the bold', '- **Database:** Postgres 16', ['Database', 'Postgres 16']],
+    ['a URL is not split', '- See http://example.com', ['See http://example.com', '']],
+  ])('%s', (_name, input, [title, body]) => {
+    expect(parseChatSummary(input)).toEqual([expect.objectContaining({ title, body })])
+  })
+
+  it('does not split when the label is longer than 60 characters', () => {
+    const label = 'This label is far too long to be a short name for an entry at all'
+    const [draft] = parseChatSummary(`- ${label}: and the rest`)
+    expect(draft).toEqual({ kind: 'fact', title: `${label}: and the rest`, body: '' })
+  })
+
+  it('cuts a long title at a sentence end and keeps the full line in the body', () => {
+    const line =
+      'Use Vite for the dev server. It starts fast and the build output is small enough to ship everywhere'
+    const [draft] = parseChatSummary(`- ${line}`)
+    expect(draft!.title).toBe('Use Vite for the dev server…')
+    expect(draft!.body).toBe(line)
+  })
+
+  it('cuts a long title at a word break, with an ellipsis, and keeps the whole text in the body', () => {
+    const line =
+      'We decided to split the service into three deployable units because the billing path must stay independent of the reporting path'
+    const [draft] = parseChatSummary(`- ${line}\n  Revisit in spring.`)
+    expect(draft!.kind).toBe('decision')
+    expect(draft!.title.endsWith('…')).toBe(true)
+    expect(draft!.title.length).toBeLessThanOrEqual(81)
+    expect(line.startsWith(draft!.title.slice(0, -1))).toBe(true)
+    expect(draft!.body).toBe(`${line}\nRevisit in spring.`)
+  })
+})
+
+describe('parseChatSummary: kind guessing', () => {
+  it.each<[string, string, string]>([
+    ['decided', '- We decided to use Vite', 'decision'],
+    ['decision word', '- Decision: keep the monorepo', 'decision'],
+    ['we chose', '- we chose SQLite', 'decision'],
+    ['will use', '- Will use Postgres', 'decision'],
+    ['undecided is not decided', '- Still undecided about caching', 'fact'],
+    ['misdecided is not decided', '- We misdecided once', 'fact'],
+    ['prefer', '- I prefer short answers', 'preference'],
+    ['always', '- Always use semicolons', 'preference'],
+    ['never', '- Never commit secrets', 'preference'],
+    ['convention', '- Team convention is kebab-case', 'preference'],
+    ['relative path', '- Config lives in ./config', 'file-note'],
+    ['path with slashes', '- The entry point is src/main.tsx', 'file-note'],
+    ['file name with extension', '- api.ts holds every network call', 'file-note'],
+    ['the word file', '- The file list is sorted', 'file-note'],
+    ['and/or is not a path', '- Choose and/or logic', 'fact'],
+    ['plain fact', '- We use Postgres 16', 'fact'],
+    ['decision beats preference', '- Decided to always lint', 'decision'],
+  ])('%s', (_name, input, kind) => {
+    expect(parseChatSummary(input)[0]?.kind).toBe(kind)
+  })
+
+  it.each<[string, string, string]>([
+    ['decisions section', '## Decisions\n- Use Vite', 'decision'],
+    ['preferences section', '## Preferences\n- Plain answers', 'preference'],
+    ['files section', '## Files\n- Holds the API client', 'file-note'],
+    ['own words win over the section', '## Decisions\n- Prefer short answers', 'preference'],
+    ['no hint means fact', '## Stack\n- Vite', 'fact'],
+    ['"Profile" does not hint file-note', '## Profile\n- Plain answers', 'fact'],
+  ])('section hint: %s', (_name, input, kind) => {
+    expect(parseChatSummary(input)[0]?.kind).toBe(kind)
+  })
+})
+
+describe('parseChatSummary: code fences', () => {
+  it('uses the language as the title when nothing else is near', () => {
+    expect(rows(parseChatSummary('```ts\nconst a = 1\n```'))).toEqual([
+      ['snippet', 'ts snippet', 'const a = 1'],
+    ])
+  })
+
+  it('uses a plain "Snippet" title when there is no language and no context', () => {
+    expect(rows(parseChatSummary('```\nrun()\n```'))).toEqual([['snippet', 'Snippet', 'run()']])
+  })
+
+  it('uses the short text line just above the fence as the title', () => {
+    expect(rows(parseChatSummary('Use this helper:\n\n```\nfn()\n```'))).toEqual([
+      ['snippet', 'Use this helper:', 'fn()'],
+    ])
+  })
+
+  it('uses the section heading when the line above is a heading', () => {
+    expect(rows(parseChatSummary('## Helpers\n```js\nx()\n```'))).toEqual([['snippet', 'Helpers', 'x()']])
+  })
+
+  it('uses the section heading when the line above is too long', () => {
+    const long = `${'word '.repeat(20)}end`
+    expect(rows(parseChatSummary(`## Helpers\n${long}\n\`\`\`js\nx()\n\`\`\``))).toEqual([
+      ['snippet', 'Helpers', 'x()'],
+    ])
+  })
+
+  it('runs an unclosed fence to the end of the input', () => {
+    expect(rows(parseChatSummary('## Run\n```sh\nnpm test\nnpm run build\n'))).toEqual([
+      ['snippet', 'Run', 'npm test\nnpm run build'],
+    ])
+  })
+
+  it('does not read headings or bullets inside a fence', () => {
+    expect(rows(parseChatSummary('```md\n# not a heading\n- not a bullet\n```'))).toEqual([
+      ['snippet', 'md snippet', '# not a heading\n- not a bullet'],
+    ])
+  })
+
+  it('keeps a fence closed only by a matching marker, longer or equal', () => {
+    expect(rows(parseChatSummary('````\n```\nstill code\n````'))).toEqual([
+      ['snippet', 'Snippet', '```\nstill code'],
+    ])
+  })
+
+  it('takes a fence nested in a bullet out of the bullet body', () => {
+    const drafts = parseChatSummary(
+      '- Set up the database\n  ```sql\n  CREATE TABLE t;\n  ```\n  Then run it once.\n- Next',
+    )
+    expect(rows(drafts)).toEqual([
+      ['fact', 'Set up the database', 'Then run it once.'],
+      ['snippet', 'sql snippet', 'CREATE TABLE t;'],
+      ['fact', 'Next', ''],
+    ])
+  })
+
+  it('does not import an empty fence', () => {
+    expect(parseChatSummary('```js\n```')).toEqual([])
+  })
+})
+
+describe('parseChatSummary: whitespace, line endings and limits', () => {
+  it.each<[string, string]>([
+    ['empty input', ''],
+    ['spaces only', '   '],
+    ['tabs and newlines only', '\t\n \n\n'],
+  ])('gives [] for %s', (_name, input) => {
+    expect(parseChatSummary(input)).toEqual([])
+  })
+
+  it('reads CRLF and bare CR line endings the same as LF', () => {
+    const lf = '## Stack\n- Vite\n- Postgres: version 16\n\n```ts\nconst a = 1\n```\n'
+    const expected = rows(parseChatSummary(lf))
+    expect(rows(parseChatSummary(lf.replace(/\n/g, '\r\n')))).toEqual(expected)
+    expect(rows(parseChatSummary(lf.replace(/\n/g, '\r')))).toEqual(expected)
+    expect(expected).toEqual([
+      ['fact', 'Vite', ''],
+      ['fact', 'Postgres', 'version 16'],
+      ['snippet', 'Stack', 'const a = 1'],
+    ])
+  })
+
+  it('does not throw on a very large input and stops at the draft cap', () => {
+    const big = Array.from({ length: 50_000 }, (_, i) => `- item ${i}`).join('\n')
+    expect(big.length).toBeGreaterThan(MAX_INPUT_CHARS)
+    const drafts = parseChatSummary(big)
+    expect(drafts).toHaveLength(MAX_DRAFTS)
+    expect(drafts[0]!.title).toBe('item 0')
+    expect(drafts.at(-1)!.title).toBe(`item ${MAX_DRAFTS - 1}`)
+  })
+
+  it('ignores input past the character cap', () => {
+    const input = `- early\n${' '.repeat(MAX_INPUT_CHARS)}\n- late`
+    expect(rows(parseChatSummary(input))).toEqual([['fact', 'early', '']])
+  })
+
+  it('does not throw on one very long line of text', () => {
+    expect(() => parseChatSummary(`- ${'a: '.repeat(100_000)}`)).not.toThrow()
+    expect(() => parseChatSummary(`## ${'word '.repeat(60_000)}\n- x`)).not.toThrow()
+  })
+
+  it('does not throw on a bullet body with a very large number of lines', () => {
+    const input = `- head\n${Array.from({ length: 100_000 }, (_, i) => `  line ${i}`).join('\n')}`
+    expect(parseChatSummary(input)).toHaveLength(1)
+  })
+
+  it('returns [] for input that is not a string', () => {
+    expect(parseChatSummary(undefined as unknown as string)).toEqual([])
+  })
+})
+
+describe('parseChatSummary: a realistic chat summary', () => {
+  it('splits every section into the right kind of draft', () => {
+    const summary = [
+      'Here is a summary of our chat about the Squirrow build.',
+      '',
+      '## Stack',
+      '- We use Vite and React 19 with TypeScript.',
+      '- **Storage**: IndexedDB through the idb wrapper.',
+      '',
+      '## Decisions',
+      '- We decided to keep the app free of any backend.',
+      '- Chose Vitest over Jest because it shares the Vite config.',
+      '',
+      '## Preferences',
+      '- Always give short answers with no filler.',
+      '',
+      '## Files',
+      '- src/core/search.ts ranks entries.',
+      '',
+      '## Commands',
+      '```bash',
+      'npm test',
+      'npm run build',
+      '```',
+      '',
+      'Next step: write the import dialog.',
+      '',
+      '## Open questions',
+      'Should imports merge or replace?',
+    ].join('\n')
+
+    expect(rows(parseChatSummary(summary))).toEqual([
+      ['fact', 'We use Vite and React 19 with TypeScript.', ''],
+      ['fact', 'Storage', 'IndexedDB through the idb wrapper.'],
+      ['decision', 'We decided to keep the app free of any backend.', ''],
+      ['decision', 'Chose Vitest over Jest because it shares the Vite config.', ''],
+      ['preference', 'Always give short answers with no filler.', ''],
+      ['file-note', 'src/core/search.ts ranks entries.', ''],
+      ['snippet', 'Commands', 'npm test\nnpm run build'],
+      ['fact', 'Open questions', 'Should imports merge or replace?'],
+    ])
+  })
+})

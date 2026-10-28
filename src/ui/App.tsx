@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   LAST_EXPORT_KEY,
   FIRST_ENTRY_SEEN_KEY,
@@ -8,6 +8,7 @@ import {
   shouldShowBackupNudge,
   writeStoredTime,
 } from '../core/backup'
+import { parseChatSummary, type Draft } from '../core/chatImport'
 import {
   buildContext,
   estimateTokens,
@@ -114,6 +115,7 @@ export function App() {
   const [task, setTask] = useState('')
   const [autoPick, setAutoPick] = useState<AutoPick | null>(null)
   const [editing, setEditing] = useState<Partial<Entry> | null>(null)
+  const [importing, setImporting] = useState(false)
   const [pickName, setPickName] = useState('')
   const [notice, setNotice] = useState('')
   // Null until the tokenizer loads, and stays null if it fails. Then the 4-character estimate is used.
@@ -175,8 +177,11 @@ export function App() {
     const onKey = (ev: KeyboardEvent) => {
       const typing =
         ev.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ev.target.tagName)
-      if (ev.key === 'Escape') setEditing(null)
-      if (typing || ev.ctrlKey || ev.metaKey || ev.altKey) return
+      if (ev.key === 'Escape') {
+        setEditing(null)
+        setImporting(false)
+      }
+      if (typing || ev.ctrlKey || ev.metaKey || ev.altKey || importing) return
       if (ev.key === '/') {
         ev.preventDefault()
         searchRef.current?.focus()
@@ -188,7 +193,7 @@ export function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [project])
+  }, [project, importing])
 
   const toggle = (id: Id) => {
     const nowTicked = !selected.has(id)
@@ -246,6 +251,26 @@ export function App() {
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Couldn't save the pick")
     }
+  }
+
+  // Saves the kept drafts one after another, so each write lands before the next starts. Saving only
+  // appends. On a failure it stops and reports how many were saved, and the dialog keeps the rest.
+  const saveDrafts = async (kept: Draft[]): Promise<{ saved: number; error?: string }> => {
+    if (!project) return { saved: 0, error: 'No project is open' }
+    let saved = 0
+    for (const draft of kept) {
+      try {
+        await store.saveEntry({ ...draft, projectId: project.id })
+      } catch (err) {
+        const error = err instanceof Error ? err.message : "Couldn't save that entry"
+        setNotice(`Saved ${saved} of ${kept.length} entries. The rest were not saved.`)
+        return { saved, error }
+      }
+      saved++
+    }
+    setImporting(false)
+    setNotice(`Imported ${entriesText(saved)}.`)
+    return { saved }
   }
 
   // Loading is a manual choice: the loaded entries are hand-ticked (so Auto-pick keeps them), and
@@ -400,6 +425,7 @@ export function App() {
               <button className="primary" onClick={() => setEditing({ kind: 'fact', title: '', body: '' })}>
                 + Entry (n)
               </button>
+              <button onClick={() => setImporting(true)}>Import from chat</button>
             </div>
             <div className="kind-filter" role="group" aria-label="Filter by kind">
               {ENTRY_KINDS.map((k) => (
@@ -639,6 +665,7 @@ export function App() {
           }}
         />
       )}
+      {importing && project && <ImportDialog onCancel={() => setImporting(false)} onSave={saveDrafts} />}
     </div>
   )
 }
@@ -702,6 +729,201 @@ function EntryDialog(props: {
             Cancel
           </button>
         </div>
+      </form>
+    </div>
+  )
+}
+
+const NOTHING_TO_IMPORT = 'Nothing to import. Paste a chat summary with headings, bullets or code blocks.'
+
+/** A draft in the preview. Its key stays the same while it is edited, so the card keeps its place. */
+type Card = Draft & { key: number }
+
+/**
+ * Paste a chat summary, preview the drafts it splits into, then save the ones kept. Step one is the
+ * paste box. Step two lists one editable card per draft. Saving is the parent's job, and it returns how
+ * many drafts were saved, so a failure partway leaves the rest here to save again.
+ */
+function ImportDialog(props: {
+  onCancel: () => void
+  onSave: (kept: Draft[]) => Promise<{ saved: number; error?: string }>
+}) {
+  const [text, setText] = useState('')
+  const [cards, setCards] = useState<Card[] | null>(null)
+  const [message, setMessage] = useState('')
+  const [attempted, setAttempted] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [failure, setFailure] = useState('')
+  const formRef = useRef<HTMLFormElement>(null)
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const reviewing = cards !== null
+
+  useEffect(() => {
+    if (reviewing) headingRef.current?.focus()
+  }, [reviewing])
+
+  const preview = (e: FormEvent) => {
+    e.preventDefault()
+    const drafts = parseChatSummary(text)
+    if (drafts.length === 0) {
+      setMessage(NOTHING_TO_IMPORT)
+      return
+    }
+    setMessage('')
+    setAttempted(false)
+    setFailure('')
+    setCards(drafts.map((d, key) => ({ ...d, key })))
+  }
+
+  const edit = (key: number, patch: Partial<Draft>) =>
+    setCards((cs) => cs?.map((c) => (c.key === key ? { ...c, ...patch } : c)) ?? null)
+
+  const drop = (key: number) => setCards((cs) => cs?.filter((c) => c.key !== key) ?? null)
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!cards || cards.length === 0 || saving) return
+    if (cards.some((c) => !c.title.trim())) {
+      setAttempted(true)
+      formRef.current?.querySelector<HTMLInputElement>('input[aria-invalid="true"]')?.focus()
+      return
+    }
+    setSaving(true)
+    setFailure('')
+    const kept = cards.map(({ kind, title, body }) => ({ kind, title: title.trim(), body }))
+    const result = await props.onSave(kept)
+    if (!result.error) return
+    // Stopped partway: the saved drafts leave the list, and the rest stay so they can be saved again.
+    setSaving(false)
+    setFailure(
+      `Saved ${result.saved} of ${kept.length} entries, then this failed: ${result.error}. The rest are still listed.`,
+    )
+    setCards((cs) => cs?.slice(result.saved) ?? null)
+  }
+
+  return (
+    <div className="overlay" onClick={props.onCancel}>
+      <form
+        ref={formRef}
+        className="import"
+        role="dialog"
+        aria-label="Import from chat"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={cards ? save : preview}
+      >
+        {cards ? (
+          <>
+            <h3 ref={headingRef} tabIndex={-1}>
+              {cards.length === 1 ? '1 draft' : `${cards.length} drafts`}
+            </h3>
+            <p className="hint">
+              Check each draft, because guessed kinds are often wrong. Back keeps your pasted text, but edits
+              made here are replaced when you preview again.
+            </p>
+            <ul className="draft-list">
+              {cards.map((c, n) => {
+                const untitled = attempted && !c.title.trim()
+                return (
+                  <li key={c.key} className={`kind-${c.kind}`}>
+                    <label>
+                      Title
+                      <input
+                        value={c.title}
+                        disabled={saving}
+                        aria-invalid={untitled ? true : undefined}
+                        onChange={(e) => edit(c.key, { title: e.target.value })}
+                      />
+                    </label>
+                    {untitled && <p className="error">Title is required</p>}
+                    <label>
+                      Kind
+                      <select
+                        value={c.kind}
+                        disabled={saving}
+                        onChange={(e) => edit(c.key, { kind: e.target.value as EntryKind })}
+                      >
+                        {ENTRY_KINDS.map((k) => (
+                          <option key={k} value={k}>
+                            {KIND_ICON[k]} {k}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Details
+                      <textarea
+                        rows={3}
+                        value={c.body}
+                        disabled={saving}
+                        onChange={(e) => edit(c.key, { body: e.target.value })}
+                      />
+                    </label>
+                    <div className="row">
+                      <button
+                        type="button"
+                        className="danger"
+                        aria-label={`Drop draft ${n + 1}`}
+                        disabled={saving}
+                        onClick={() => drop(c.key)}
+                      >
+                        Drop
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+            {cards.length === 0 && (
+              <p className="hint">Every draft is dropped. Go back to paste more, or cancel.</p>
+            )}
+            {failure && (
+              <p role="alert" className="error">
+                {failure}
+              </p>
+            )}
+            <div className="row">
+              <button type="submit" className="primary" disabled={cards.length === 0 || saving}>
+                {`Save ${entriesText(cards.length)}`}
+              </button>
+              <button type="button" disabled={saving} onClick={() => setCards(null)}>
+                Back
+              </button>
+              <button type="button" disabled={saving} onClick={props.onCancel}>
+                Cancel
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h3>Import from chat</h3>
+            <p className="hint">
+              Recognized: <code># headings</code>, bullets (<code>-</code>, <code>*</code>, <code>+</code>,{' '}
+              <code>1.</code>) and <code>```</code> code blocks. Nothing leaves your browser, and no AI is
+              used.
+            </p>
+            <textarea
+              autoFocus
+              rows={12}
+              aria-label="Chat summary"
+              placeholder="Paste a chat summary here"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+            {message && (
+              <p role="alert" className="error">
+                {message}
+              </p>
+            )}
+            <div className="row">
+              <button type="submit" className="primary">
+                Preview
+              </button>
+              <button type="button" onClick={props.onCancel}>
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
       </form>
     </div>
   )
