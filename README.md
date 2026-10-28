@@ -16,7 +16,7 @@ After the first visit, the app opens without a connection.
 
 ## Back up your data
 
-Your entries live only in this browser on this device. Clearing site data, using a private window, or switching browsers or devices means you won't see them. Use **Export JSON** now and then to keep a backup, and **Import JSON** to restore it or move it to another device. If you have entries and haven't exported JSON in 14 days, a banner asks you to back up. **Dismiss** hides it for 7 days. Exporting JSON from the banner or the sidebar counts as a backup; Markdown export does not. The reminder is remembered per browser, in local storage, and is never part of the export file.
+Your entries live only in this browser on this device. Clearing site data, using a private window, or switching browsers or devices means you won't see them. Use **Export JSON** now and then to keep a backup, and **Import JSON** to restore it or move it to another device. A banner asks you to back up when your last JSON export is more than 14 days old, or when you have never exported and your entries were first seen in this browser more than 14 days ago. **Dismiss** hides it for 7 days. Exporting JSON from the banner or the sidebar counts as a backup; Markdown export does not. The reminder and the date your entries were first seen are kept in local storage, and are never part of the export file.
 
 ## What it does
 
@@ -28,7 +28,7 @@ Your entries live only in this browser on this device. Clearing site data, using
 - **Keyboard first:** `/` to search, `n` for a new entry, `Esc` to close.
 - **Safe updates:** a new version waits until you click Reload, so it never swaps out the app mid-edit. When you do reload, every open Squirrow tab reloads, so finish typing in other tabs first.
 - **Export and import:** JSON round-trips, and Markdown export is available. Import asks before it replaces your data.
-- **Backup reminder:** after 14 days without a JSON export, a dismissible banner offers one. Dismissing hides it for 7 days.
+- **Backup reminder:** a dismissible banner offers a JSON export when the last one is more than 14 days old, or when you have never exported and your entries were first seen more than 14 days ago. Dismissing hides it for 7 days.
 - **Beginner friendly:** an empty-state guide with three steps, and a clear "Title is required" message instead of a silent failure.
 - **Pixel-art scenery** (light and dark) with twinkling stars, shooting stars and hopping robots. The motion switches off when your system asks for reduced motion.
 
@@ -51,7 +51,7 @@ React 19, TypeScript and Vite. Logic lives in `src/core` with no React imports: 
 ## Limits
 
 - The token count is an estimate of about 4 characters per token, not a real tokenizer.
-- The backup reminder is remembered per browser. Another browser or device will show its own reminder.
+- The backup reminder is remembered per browser. Another browser or device will show its own reminder, and counts its own 14 days from when it first saw entries. Anyone who already has entries starts counting from their next visit.
 - The list is not virtualized, which is fine for hundreds of entries. It would need changing for thousands.
 - Tests cover `src/core`, the main UI flows and the service worker. Browser-specific behavior such as installing and clipboard permissions is checked by hand.
 

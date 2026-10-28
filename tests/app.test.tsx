@@ -2,7 +2,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LAST_EXPORT_KEY } from '../src/core/backup'
+import { FIRST_ENTRY_SEEN_KEY, LAST_EXPORT_KEY } from '../src/core/backup'
 import type { EntryKind } from '../src/core/types'
 import { App } from '../src/ui/App'
 import { useUpdateReady } from '../src/ui/useUpdateReady'
@@ -575,18 +575,69 @@ describe('backup reminder', () => {
     await until(() => !text().includes('Loading'))
   }
 
-  it('shows once there is data and no export yet, but not in an empty app', async () => {
-    expect(banner()).toBeNull()
+  /** Makes entries look first seen `days` ago, then reloads so the app reads the stored time. */
+  const seenAgo = async (days: number) => {
+    localStorage.setItem(FIRST_ENTRY_SEEN_KEY, String(Date.now() - days * DAY))
+    await reload()
+  }
+
+  it('stays hidden for a new user, then shows once the first entry is 15 days old', async () => {
     await addProject('Demo')
-    expect(banner()).toBeNull()
+    expect(localStorage.getItem(FIRST_ENTRY_SEEN_KEY)).toBeNull()
     await addEntry('Use Postgres')
+    expect(banner()).toBeNull()
+    const firstSeen = localStorage.getItem(FIRST_ENTRY_SEEN_KEY)
+    expect(firstSeen).not.toBeNull()
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 15 * DAY)
+    await reload()
     expect(banner()!.textContent).toContain("You haven't backed up lately")
+    expect(localStorage.getItem(FIRST_ENTRY_SEEN_KEY)).toBe(firstSeen)
+  })
+
+  it('does not move the first-seen time when the entry is edited', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    const firstSeen = localStorage.getItem(FIRST_ENTRY_SEEN_KEY)
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3 * DAY)
+    await click(button('Edit'))
+    await act(async () =>
+      type(host.querySelector<HTMLInputElement>('input[placeholder="Title"]')!, 'Use Postgres 16'),
+    )
+    await click(button('Save'))
+    await until(() => !host.querySelector('[role="dialog"]'))
+    expect(localStorage.getItem(FIRST_ENTRY_SEEN_KEY)).toBe(firstSeen)
+  })
+
+  it('records the first-seen time for an existing user who has none stored, without a banner', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    localStorage.removeItem(FIRST_ENTRY_SEEN_KEY)
+    await reload()
+    expect(banner()).toBeNull()
+    expect(localStorage.getItem(FIRST_ENTRY_SEEN_KEY)).not.toBeNull()
+  })
+
+  it('writes no first-seen time when there are no entries', async () => {
+    await addProject('Demo')
+    await reload()
+    expect(banner()).toBeNull()
+    expect(localStorage.getItem(FIRST_ENTRY_SEEN_KEY)).toBeNull()
+  })
+
+  it('treats a garbage stored first-seen time as missing and records it again', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres')
+    localStorage.setItem(FIRST_ENTRY_SEEN_KEY, 'garbage')
+    await reload()
+    expect(banner()).toBeNull()
+    expect(Number(localStorage.getItem(FIRST_ENTRY_SEEN_KEY))).toBeGreaterThan(0)
   })
 
   it('exports from the banner, hides it, and keeps it hidden after a reload', async () => {
     const clicked = stubDownload()
     await addProject('Demo')
     await addEntry('Use Postgres')
+    await seenAgo(15)
     await click(bannerButton('Export'))
     expect(clicked).toHaveBeenCalledOnce()
     expect(banner()).toBeNull()
@@ -599,6 +650,8 @@ describe('backup reminder', () => {
     stubDownload()
     await addProject('Demo')
     await addEntry('Use Postgres')
+    await seenAgo(15)
+    expect(banner()).not.toBeNull()
     await click(button('Export JSON'))
     expect(banner()).toBeNull()
   })
@@ -607,6 +660,7 @@ describe('backup reminder', () => {
     stubDownload()
     await addProject('Demo')
     await addEntry('Use Postgres')
+    await seenAgo(15)
     await click(button('Export Markdown'))
     expect(banner()).not.toBeNull()
     expect(localStorage.getItem(LAST_EXPORT_KEY)).toBeNull()
@@ -624,6 +678,8 @@ describe('backup reminder', () => {
     )
     await addProject('Demo')
     await addEntry('Use Postgres')
+    await seenAgo(15)
+    expect(banner()).not.toBeNull()
     const expected = (e: ErrorEvent) => e.preventDefault()
     window.addEventListener('error', expected)
     try {
@@ -640,6 +696,7 @@ describe('backup reminder', () => {
     const at = (days: number) => vi.spyOn(Date, 'now').mockReturnValue(start + days * DAY)
     await addProject('Demo')
     await addEntry('Use Postgres')
+    await seenAgo(15)
     await click(bannerButton('Dismiss'))
     expect(banner()).toBeNull()
     at(6)

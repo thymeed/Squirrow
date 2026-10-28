@@ -1,10 +1,11 @@
-/** Remind to back up when the last JSON export is older than this. */
+/** Remind to back up when the last JSON export is older than this. Without an export, it counts from the first time entries were seen here. */
 export const BACKUP_REMINDER_DAYS = 14
 /** A dismissed reminder stays hidden for this long. */
 export const NUDGE_SNOOZE_DAYS = 7
 
 export const LAST_EXPORT_KEY = 'squirrow.lastExportAt'
 export const NUDGE_DISMISSED_KEY = 'squirrow.nudgeDismissedUntil'
+export const FIRST_ENTRY_SEEN_KEY = 'squirrow.firstEntrySeenAt'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -12,19 +13,25 @@ export interface NudgeState {
   now: number
   entryCount: number
   lastExportAt: number | null
+  firstEntrySeenAt: number | null
   dismissedUntil: number | null
 }
 
-/** True when the backup reminder should show: there is data, it is not snoozed, and no export in 14 days. */
+/**
+ * True when the backup reminder should show: there is data, it is not snoozed, and the last export
+ * is over 14 days old. With no export yet, the 14 days count from when entries were first seen here.
+ */
 export function shouldShowBackupNudge({
   now,
   entryCount,
   lastExportAt,
+  firstEntrySeenAt,
   dismissedUntil,
 }: NudgeState): boolean {
   if (entryCount <= 0) return false
   if (dismissedUntil !== null && now <= dismissedUntil) return false
-  return lastExportAt === null || now - lastExportAt > BACKUP_REMINDER_DAYS * DAY_MS
+  if (lastExportAt !== null) return now - lastExportAt > BACKUP_REMINDER_DAYS * DAY_MS
+  return firstEntrySeenAt !== null && now - firstEntrySeenAt > BACKUP_REMINDER_DAYS * DAY_MS
 }
 
 export const dismissedUntilFrom = (now: number): number => now + NUDGE_SNOOZE_DAYS * DAY_MS

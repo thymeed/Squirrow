@@ -363,7 +363,14 @@ describe('repository', () => {
 describe('backup nudge', () => {
   const DAY = 24 * 60 * 60 * 1000
   const now = Date.UTC(2026, 9, 27)
-  const base = { now, entryCount: 3, lastExportAt: null, dismissedUntil: null }
+  // Entries seen 15 days ago, never exported, not snoozed: the reminder should show.
+  const base = {
+    now,
+    entryCount: 3,
+    lastExportAt: null,
+    firstEntrySeenAt: now - 15 * DAY,
+    dismissedUntil: null,
+  }
   const fakeStorage = () => {
     const items = new Map<string, string>()
     return {
@@ -372,11 +379,31 @@ describe('backup nudge', () => {
     }
   }
 
-  it('shows when there is data and it was never exported', () => {
+  it('shows when there is data, it was never exported, and entries were first seen 15 days ago', () => {
     expect(shouldShowBackupNudge(base)).toBe(true)
   })
   it('hides when there are no entries, even if never exported', () => {
     expect(shouldShowBackupNudge({ ...base, entryCount: 0 })).toBe(false)
+  })
+  it('hides a new user whose entries were first seen one day ago', () => {
+    expect(shouldShowBackupNudge({ ...base, firstEntrySeenAt: now - DAY })).toBe(false)
+  })
+  it('hides at exactly 14 days after entries were first seen', () => {
+    expect(shouldShowBackupNudge({ ...base, firstEntrySeenAt: now - 14 * DAY })).toBe(false)
+  })
+  it('shows once entries were first seen more than 14 days ago', () => {
+    expect(shouldShowBackupNudge({ ...base, firstEntrySeenAt: now - 14 * DAY - 1 })).toBe(true)
+  })
+  it('hides when entries exist, but no first-seen time is recorded', () => {
+    expect(shouldShowBackupNudge({ ...base, firstEntrySeenAt: null })).toBe(false)
+  })
+  it('hides when a recent export beats an old first-seen time', () => {
+    expect(shouldShowBackupNudge({ ...base, lastExportAt: now - DAY })).toBe(false)
+  })
+  it('shows when an old export exists, regardless of a recent first-seen time', () => {
+    expect(
+      shouldShowBackupNudge({ ...base, lastExportAt: now - 15 * DAY, firstEntrySeenAt: now - DAY }),
+    ).toBe(true)
   })
   it('hides when the last export was 13 days ago', () => {
     expect(shouldShowBackupNudge({ ...base, lastExportAt: now - 13 * DAY })).toBe(false)

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   LAST_EXPORT_KEY,
+  FIRST_ENTRY_SEEN_KEY,
   NUDGE_DISMISSED_KEY,
   dismissedUntilFrom,
   readStoredTime,
@@ -93,6 +94,7 @@ export function App() {
   const [notice, setNotice] = useState('')
   const [lastExportAt, setLastExportAt] = useState(() => readStoredTime(LAST_EXPORT_KEY))
   const [dismissedUntil, setDismissedUntil] = useState(() => readStoredTime(NUDGE_DISMISSED_KEY))
+  const [firstEntrySeenAt, setFirstEntrySeenAt] = useState(() => readStoredTime(FIRST_ENTRY_SEEN_KEY))
   const applyUpdate = useUpdateReady()
   const searchRef = useRef<HTMLInputElement>(null)
   const importRef = useRef<HTMLInputElement>(null)
@@ -118,6 +120,14 @@ export function App() {
   useEffect(() => {
     setAutoPick(null)
   }, [project?.id, projectEntries])
+
+  // Records the first time entries are seen in this browser. Only written once, so it never moves.
+  useEffect(() => {
+    if (!store.ready || data.entries.length === 0 || firstEntrySeenAt !== null) return
+    const now = Date.now()
+    writeStoredTime(FIRST_ENTRY_SEEN_KEY, now)
+    setFirstEntrySeenAt(now)
+  }, [store.ready, data.entries.length, firstEntrySeenAt])
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
@@ -227,6 +237,7 @@ export function App() {
     now: Date.now(),
     entryCount: data.entries.length,
     lastExportAt,
+    firstEntrySeenAt,
     dismissedUntil,
   })
 
