@@ -152,4 +152,44 @@ describe('service worker', () => {
       '/assets/lazy-CCCC3333.js',
     ])
   })
+
+  it('ignores plain relative file names in JS, so a 404 there cannot break install', async () => {
+    const network = vi.fn(
+      build({
+        '/': '<script type="module" src="/assets/index-AAAA1111.js"></script>',
+        '/assets/index-AAAA1111.js':
+          'const a = "./foo.js", b = "./notes.txt"; import(`./o200k_base-CCCC3333.js`)',
+        '/assets/o200k_base-CCCC3333.js': 'export const n = 1',
+      }),
+    )
+    const sw = loadWorker(network)
+    await expect(sw.install()).resolves.toBeUndefined()
+    const fetched = network.mock.calls.map(([url]) => new URL(url).pathname)
+    expect(fetched).not.toContain('/assets/foo.js')
+    expect(fetched).not.toContain('/assets/notes.txt')
+    expect(precached(sw)).toEqual(
+      [
+        '/',
+        '/manifest.webmanifest',
+        '/icon-192.png',
+        '/assets/index-AAAA1111.js',
+        '/assets/o200k_base-CCCC3333.js',
+      ].sort(),
+    )
+  })
+
+  it('ignores hashed chunk references in the page that would resolve outside /assets/', async () => {
+    const network = vi.fn(
+      build({
+        '/': '<script type="module" src="/assets/index-AAAA1111.js"></script><script>import("./stray-CCCC3333.js")</script>',
+        '/assets/index-AAAA1111.js': 'export const a = 1',
+        '/stray-CCCC3333.js': 'export const s = 1',
+      }),
+    )
+    const sw = loadWorker(network)
+    await sw.install()
+    const fetched = network.mock.calls.map(([url]) => new URL(url).pathname).sort()
+    expect(fetched).toEqual(['/', '/assets/index-AAAA1111.js'])
+    expect(precached(sw)).not.toContain('/stray-CCCC3333.js')
+  })
 })

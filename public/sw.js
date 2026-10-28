@@ -1,7 +1,8 @@
 const CACHE = 'squirrow-dev'
 
-// The build writes `/assets/x.js` in the page and CSS, and `./x.js` for lazy chunks inside JS.
-const ASSET_REF = /(?:\.\/|\/assets\/)[\w.-]+\.\w+/g
+// The build writes `/assets/x.js` in the page and CSS, and `./x-HASH.js` for lazy chunks inside JS.
+// The relative form needs Vite's 8-character content hash, so a plain `./foo.js` literal is ignored.
+const ASSET_REF = /(?:\.\/[\w-]+-[\w-]{8}\.\w+|\/assets\/[\w.-]+\.\w+)/g
 
 async function precache() {
   const cache = await caches.open(CACHE)
