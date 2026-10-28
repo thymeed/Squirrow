@@ -394,6 +394,22 @@ main {
   border-radius: 999px;
   animation: pop 0.2s ease both;
 }
+.nudge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  padding: 8px 14px;
+  border-radius: 14px;
+  margin-bottom: 16px;
+  animation: pop 0.2s ease both;
+  p {
+    margin: 0;
+  }
+}
 .update button {
   margin-left: 4px;
 }

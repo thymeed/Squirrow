@@ -1,5 +1,13 @@
 import { openDB } from 'idb'
 import { describe, expect, it } from 'vitest'
+import {
+  LAST_EXPORT_KEY,
+  NUDGE_DISMISSED_KEY,
+  dismissedUntilFrom,
+  readStoredTime,
+  shouldShowBackupNudge,
+  writeStoredTime,
+} from '../src/core/backup'
 import { buildContext, estimateTokens, selectContext } from '../src/core/inject'
 import { MAX_IMPORT_CHARS, exportJson, exportMarkdown, parseSnapshot } from '../src/core/portability'
 import { createIndexedDbRepository } from '../src/core/repository'
@@ -349,5 +357,69 @@ describe('repository', () => {
     expect(await repo.load()).toMatchObject({ projects: [], entries: [] })
     const names = (await indexedDB.databases()).map((d) => d.name)
     expect(names).not.toContain(legacy)
+  })
+})
+
+describe('backup nudge', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  const now = Date.UTC(2026, 9, 27)
+  const base = { now, entryCount: 3, lastExportAt: null, dismissedUntil: null }
+  const fakeStorage = () => {
+    const items = new Map<string, string>()
+    return {
+      getItem: (k: string) => items.get(k) ?? null,
+      setItem: (k: string, v: string) => void items.set(k, v),
+    }
+  }
+
+  it('shows when there is data and it was never exported', () => {
+    expect(shouldShowBackupNudge(base)).toBe(true)
+  })
+  it('hides when there are no entries, even if never exported', () => {
+    expect(shouldShowBackupNudge({ ...base, entryCount: 0 })).toBe(false)
+  })
+  it('hides when the last export was 13 days ago', () => {
+    expect(shouldShowBackupNudge({ ...base, lastExportAt: now - 13 * DAY })).toBe(false)
+  })
+  it('hides at exactly 14 days after the last export', () => {
+    expect(shouldShowBackupNudge({ ...base, lastExportAt: now - 14 * DAY })).toBe(false)
+  })
+  it('shows once the last export is just over 14 days old', () => {
+    expect(shouldShowBackupNudge({ ...base, lastExportAt: now - 14 * DAY - 1 })).toBe(true)
+  })
+  it('hides while a dismissal is still running', () => {
+    expect(shouldShowBackupNudge({ ...base, dismissedUntil: now + DAY })).toBe(false)
+  })
+  it('shows again once a dismissal has expired', () => {
+    expect(shouldShowBackupNudge({ ...base, dismissedUntil: now - 1 })).toBe(true)
+  })
+  it('snoozes a dismissal for seven days', () => {
+    expect(dismissedUntilFrom(now)).toBe(now + 7 * DAY)
+  })
+
+  it('round-trips a stored time and keeps the keys apart', () => {
+    const store = fakeStorage()
+    writeStoredTime(LAST_EXPORT_KEY, now, store)
+    expect(readStoredTime(LAST_EXPORT_KEY, store)).toBe(now)
+    expect(readStoredTime(NUDGE_DISMISSED_KEY, store)).toBeNull()
+  })
+  it('reads garbage stored values as null', () => {
+    const store = fakeStorage()
+    for (const raw of ['', 'abc', 'NaN', 'Infinity', '-5', '0', '{}']) {
+      store.setItem(LAST_EXPORT_KEY, raw)
+      expect(readStoredTime(LAST_EXPORT_KEY, store)).toBeNull()
+    }
+  })
+  it('does not throw when localStorage is blocked', () => {
+    const blocked = {
+      getItem: () => {
+        throw new Error('denied')
+      },
+      setItem: () => {
+        throw new Error('denied')
+      },
+    }
+    expect(readStoredTime(LAST_EXPORT_KEY, blocked)).toBeNull()
+    expect(() => writeStoredTime(LAST_EXPORT_KEY, now, blocked)).not.toThrow()
   })
 })
