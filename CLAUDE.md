@@ -19,7 +19,6 @@ Local-first React 19 + TypeScript + Vite app that stores per-project AI context 
 
 ## Rules for working here
 
-- The owner does not write code by hand. Explain behavior first, then name the file and function. Never ask them to edit code.
 - Keep core logic in `src/core` with no React imports. `store.ts` is the only exception, as the hook between storage and the UI. Parse untrusted input only in `parseSnapshot`.
 - Work flows through GitHub: open an Issue, fix on a branch, open a PR, CI must be green. The owner does final acceptance before a release.
 - Commits end with the Co-Authored-By line from the session attribution.
