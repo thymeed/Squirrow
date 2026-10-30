@@ -10,6 +10,7 @@
     "check:sw": "node scripts/check-sw-scan.mjs",
     "preview": "vite preview",
     "test": "vitest run",
+    "bench": "node bench/run.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

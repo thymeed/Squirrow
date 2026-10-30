@@ -50,6 +50,10 @@ The scenery images are generated: edit `scripts/make-scenery.py` and run `python
 
 React 19, TypeScript and Vite. Logic lives in `src/core` with no React imports: storage behind a `Repository` interface, ranking in `search.ts`, context building and token counting in `inject.ts`, and import parsing in `portability.ts`. Token counting loads the `gpt-tokenizer` o200k tokenizer in its own chunk just after the first paint, and falls back to a 4-characters-per-token estimate if that fails. Untrusted input is parsed in one place, `parseSnapshot`. See [ARCHITECTURE.md](ARCHITECTURE.md) for the design decisions.
 
+## Scalability
+
+Measured timings for search, Auto-pick, export and the list from 100 to 50,000 entries, with the method and the limits of the measurements, are in [docs/SCALABILITY.md](docs/SCALABILITY.md). In short: up to about 1,000 entries per project the list, search and export stay under about 0.35 s, but Auto-pick with the real tokenizer already takes about 7 s at that size, and at 5,000 entries and above expect visible slowness.
+
 ## Limits
 
 - Token counts use the o200k tokenizer (`gpt-tokenizer`). They are exact for recent GPT models and approximate for Claude and Gemini, which use their own tokenizers. If the tokenizer fails to load, the app falls back to about 4 characters per token and labels the count "estimate". The tokenizer is about 1 MB gzipped and is cached for offline use on the first visit.
