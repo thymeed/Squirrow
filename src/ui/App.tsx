@@ -1,4 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from 'react'
+import {
+  memo,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type MouseEvent,
+} from 'react'
 import {
   LAST_EXPORT_KEY,
   FIRST_ENTRY_SEEN_KEY,
@@ -100,6 +110,43 @@ function download(name: string, text: string, type: string) {
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000)
 }
 
+interface EntryRowProps {
+  entry: Entry
+  checked: boolean
+  onToggle: (id: Id, nowTicked: boolean) => void
+  onEdit: (entry: Entry) => void
+  onRemove: (id: Id) => void
+}
+
+// Memoised so a search, tick or typing elsewhere re-renders only the rows whose own props changed.
+const EntryRow = memo(function EntryRow({ entry: e, checked, onToggle, onEdit, onRemove }: EntryRowProps) {
+  return (
+    <li className={`kind-${e.kind}`}>
+      <label>
+        <input type="checkbox" checked={checked} onChange={() => onToggle(e.id, !checked)} />
+        <span className="kind">
+          {KIND_ICON[e.kind]} {e.kind}
+        </span>
+        <strong>{e.title}</strong>
+      </label>
+      <p
+        onClick={() => {
+          // Dragging to select text for copying also ends in a click; leave the tick alone then.
+          if (!window.getSelection()?.toString()) onToggle(e.id, !checked)
+        }}
+      >
+        {e.body}
+      </p>
+      <div className="row">
+        <button onClick={() => onEdit(e)}>✏️ Edit</button>
+        <button className="danger" onClick={() => onRemove(e.id)}>
+          🗑 Delete
+        </button>
+      </div>
+    </li>
+  )
+})
+
 export function App() {
   const store = useStore()
   const { data } = store
@@ -134,9 +181,11 @@ export function App() {
     () => data.entries.filter((e) => e.projectId === project?.id),
     [data.entries, project?.id],
   )
+  // The list follows a deferred copy of the search text, so typing stays responsive while a large list catches up.
+  const deferredQuery = useDeferredValue(query)
   const visible = useMemo(
-    () => searchEntries(filterByKinds(projectEntries, kinds), query),
-    [projectEntries, kinds, query],
+    () => searchEntries(filterByKinds(projectEntries, kinds), deferredQuery),
+    [projectEntries, kinds, deferredQuery],
   )
   const chosen = projectEntries.filter((e) => selected.has(e.id))
   const picks = useMemo(
@@ -197,8 +246,7 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [project, importing, importSaving])
 
-  const toggle = (id: Id) => {
-    const nowTicked = !selected.has(id)
+  const toggle = useCallback((id: Id, nowTicked: boolean) => {
     setAutoPick(null)
     setHand((h) => new Map(h).set(id, nowTicked))
     setSelected((s) => {
@@ -207,7 +255,7 @@ export function App() {
       else next.delete(id)
       return next
     })
-  }
+  }, [])
 
   const toggleKind = (kind: EntryKind) => {
     setKinds((k) => {
@@ -448,36 +496,21 @@ export function App() {
             </div>
             <ul className="entries">
               {visible.map((e) => (
-                <li key={e.id} className={`kind-${e.kind}`}>
-                  <label>
-                    <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggle(e.id)} />
-                    <span className="kind">
-                      {KIND_ICON[e.kind]} {e.kind}
-                    </span>
-                    <strong>{e.title}</strong>
-                  </label>
-                  <p
-                    onClick={() => {
-                      // Dragging to select text for copying also ends in a click; leave the tick alone then.
-                      if (!window.getSelection()?.toString()) toggle(e.id)
-                    }}
-                  >
-                    {e.body}
-                  </p>
-                  <div className="row">
-                    <button onClick={() => setEditing(e)}>✏️ Edit</button>
-                    <button className="danger" onClick={() => store.removeEntry(e.id)}>
-                      🗑 Delete
-                    </button>
-                  </div>
-                </li>
+                <EntryRow
+                  key={e.id}
+                  entry={e}
+                  checked={selected.has(e.id)}
+                  onToggle={toggle}
+                  onEdit={setEditing}
+                  onRemove={store.removeEntry}
+                />
               ))}
-              {visible.length === 0 && query && (
+              {visible.length === 0 && deferredQuery && (
                 <li className="empty">
                   No matches. Try a shorter word{kinds.size > 0 ? ' or turn a chip off' : ''}.
                 </li>
               )}
-              {projectEntries.length > 0 && visible.length === 0 && !query && kinds.size > 0 && (
+              {projectEntries.length > 0 && visible.length === 0 && !deferredQuery && kinds.size > 0 && (
                 <li className="empty">No entries of these kinds. Turn a chip off to see more.</li>
               )}
             </ul>
