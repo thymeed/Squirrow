@@ -456,7 +456,14 @@ export function App() {
                     </span>
                     <strong>{e.title}</strong>
                   </label>
-                  <p>{e.body}</p>
+                  <p
+                    onClick={() => {
+                      // Dragging to select text for copying also ends in a click; leave the tick alone then.
+                      if (!window.getSelection()?.toString()) toggle(e.id)
+                    }}
+                  >
+                    {e.body}
+                  </p>
                   <div className="row">
                     <button onClick={() => setEditing(e)}>✏️ Edit</button>
                     <button className="danger" onClick={() => store.removeEntry(e.id)}>

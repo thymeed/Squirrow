@@ -367,6 +367,35 @@ describe('app smoke', () => {
     expect(host.querySelector('.inject pre')!.textContent).toContain('**Alpha**')
   })
 
+  it('ticks an entry when its body text is clicked, and unticks it on the next click', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    const body = host.querySelector<HTMLElement>('.entries p')!
+    await click(body)
+    expect(text()).toContain('1 selected')
+    expect(host.querySelector<HTMLInputElement>('.entries input')!.checked).toBe(true)
+    await click(body)
+    expect(text()).toContain('0 selected')
+  })
+
+  it('leaves the tick alone when body text is selected, as when dragging to copy it', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    const selection = vi
+      .spyOn(window, 'getSelection')
+      .mockReturnValue({ toString: () => 'version' } as Selection)
+    await click(host.querySelector<HTMLElement>('.entries p')!)
+    selection.mockRestore()
+    expect(text()).toContain('0 selected')
+  })
+
+  it('does not tick an entry when its Edit button is clicked', async () => {
+    await addProject('Demo')
+    await addEntry('Use Postgres', 'version 16')
+    await click(host.querySelector<HTMLElement>('.entries .row button')!)
+    expect(text()).toContain('0 selected')
+  })
+
   it('opens a new entry on n but leaves Ctrl+N and Cmd+N to the browser', async () => {
     await addProject('Demo')
     const press = (init: KeyboardEventInit) =>
