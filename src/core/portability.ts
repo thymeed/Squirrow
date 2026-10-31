@@ -15,14 +15,15 @@ export function exportMarkdown(s: Snapshot): string {
     .join('\n')
 }
 
-/** Rough guard against huge files: about 10 MB of text, far beyond any real export. */
-export const MAX_IMPORT_CHARS = 10_000_000
+/** Rough guard against huge files: about 100 MB of text, enough for an export of about 50,000 entries. */
+export const MAX_IMPORT_CHARS = 100_000_000
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
 
 /** Parses untrusted JSON into a Snapshot, throwing a readable error on any shape mismatch. */
 export function parseSnapshot(text: string): Snapshot {
-  if (text.length > MAX_IMPORT_CHARS) throw new Error('File is too large to import (limit 10 MB)')
+  if (text.length > MAX_IMPORT_CHARS)
+    throw new Error(`File is too large to import (limit ${MAX_IMPORT_CHARS / 1_000_000} MB)`)
   let raw: unknown
   try {
     raw = JSON.parse(text)
