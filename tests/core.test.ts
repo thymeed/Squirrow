@@ -428,18 +428,6 @@ describe('selectContext', () => {
       }
     })
 
-    it('finishes quickly on about 4,000 entries with the estimate counter', () => {
-      const rand = seeded(4000)
-      const entries = randomEntries(rand, 4000)
-      const pinned = randomPinned(rand, entries)
-      const budget = Math.floor(estimateTokens(buildContext(project, entries)) / 2)
-      const started = Date.now()
-      const result = selectContext(project, entries, 'postgres redis', budget, pinned)
-      // The per-candidate rebuild takes over 2 s here, the incremental fill well under 100 ms.
-      expect(Date.now() - started).toBeLessThan(300)
-      expect(result.tokens).toBe(estimateTokens(buildContext(project, result.included)))
-    })
-
     // Machine-independent check: the fill must not rebuild the whole context per candidate. Full
     // contexts start with '# Context:'. The pinned set and the final check are one count each.
     describe('full-context counts', () => {
