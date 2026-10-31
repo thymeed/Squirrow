@@ -303,6 +303,7 @@ main {
       margin: 6px 0 10px;
       white-space: pre-wrap;
       color: var(--muted);
+      cursor: pointer;
     }
     &.kind-snippet p {
       font-family: ui-monospace, Consolas, monospace;
