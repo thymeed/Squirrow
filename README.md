@@ -52,7 +52,7 @@ React 19, TypeScript and Vite. Logic lives in `src/core` with no React imports: 
 
 ## Scalability
 
-Measured timings for search, Auto-pick, export and the list from 100 to 50,000 entries, with the method and the limits of the measurements, are in [docs/SCALABILITY.md](docs/SCALABILITY.md). In short: up to about 1,000 entries per project the list, search and export stay under about 0.35 s, but Auto-pick with the real tokenizer already takes about 7 s at that size, and at 5,000 entries and above expect visible slowness.
+Measured timings for search, Auto-pick, export and the list from 100 to 50,000 entries, with the method and the limits of the measurements, are in [docs/SCALABILITY.md](docs/SCALABILITY.md). In short: up to about 1,000 entries per project the list, search and export stay under about 0.35 s. Auto-pick with the real tokenizer stays fast: about 34 ms at 1,000 entries and about 183 ms at 5,000. At 5,000 entries and above the list is the slow part: typing and ticking stay responsive, but showing new search results takes about 1.2 to 2.0 s at 5,000 entries, and longer in larger projects.
 
 ## Limits
 
