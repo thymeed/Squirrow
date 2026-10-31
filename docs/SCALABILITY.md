@@ -44,15 +44,15 @@ In a throwaway browser profile, first open the app itself at the origin that `vi
 
 Milliseconds, median. "over 60 s (stopped)" means the run passed the 60 s cap and was stopped. "not run" means it was not attempted.
 
-| Operation                                   |  100 |   1,000 |               5,000 |                            10,000 |                            50,000 |
-| ------------------------------------------- | ---: | ------: | ------------------: | --------------------------------: | --------------------------------: |
-| searchEntries (3-word query)                | 0.97 |    8.63 |                33.3 |                              67.1 |                             335.7 |
-| scoreTask (task sentence)                   | 1.58 |    11.6 |                54.8 |                             101.3 |                             511.2 |
-| buildContext (all entries)                  | 0.15 |    1.29 |                7.40 |                              15.0 |                              93.3 |
-| selectContext (Auto-pick), estimated tokens | 4.54 |   385.6 |             9,220.6 |                          41,240.9 |               over 60 s (stopped) |
-| selectContext (Auto-pick), real tokenizer   | 54.8 | 6,700.2 | over 60 s (stopped) |                           not run |                           not run |
-| exportMarkdown                              | 0.15 |    0.98 |                6.36 |                              13.3 |                              84.7 |
-| exportJson + parseSnapshot                  | 0.31 |    2.76 |                15.5 | rejected: over 10 MB import limit | rejected: over 10 MB import limit |
+| Operation                                   |  100 | 1,000 | 5,000 |                            10,000 |                            50,000 |
+| ------------------------------------------- | ---: | ----: | ----: | --------------------------------: | --------------------------------: |
+| searchEntries (3-word query)                | 0.97 |  8.63 |  33.3 |                              67.1 |                             335.7 |
+| scoreTask (task sentence)                   | 1.58 |  11.6 |  54.8 |                             101.3 |                             511.2 |
+| buildContext (all entries)                  | 0.15 |  1.29 |  7.40 |                              15.0 |                              93.3 |
+| selectContext (Auto-pick), estimated tokens | 1.80 |  13.1 |  65.7 |                             123.1 |                             681.4 |
+| selectContext (Auto-pick), real tokenizer   | 4.28 |  33.9 | 182.7 |                             355.5 |                           1,859.5 |
+| exportMarkdown                              | 0.15 |  0.98 |  6.36 |                              13.3 |                              84.7 |
+| exportJson + parseSnapshot                  | 0.31 |  2.76 |  15.5 | rejected: over 10 MB import limit | rejected: over 10 MB import limit |
 
 JSON export size: 100 entries = 0.10 MB, 1,000 = 1.0 MB, 5,000 = 5.0 MB, 10,000 = 10.2 MB, 50,000 = 51.0 MB (characters are about bytes here).
 
@@ -80,9 +80,9 @@ Notes on these numbers:
 
 For reference, under about 100 ms usually feels instant to a person using a UI, and over about 1 s feels slow.
 
-1. **Auto-pick is the first wall.** Its cost grows faster than linearly: each doubling of entries multiplies the time by roughly 4 (from 5,000 to 10,000 entries, the one true doubling measured, it is 4.5 times). From 1,000 to 5,000 entries (5 times as many) the estimate-counter time grows about 24 times. With the estimate counter it takes 0.4 s at 1,000 entries, about 9 s at 5,000 and about 41 s at 10,000. With the real o200k tokenizer it takes 6.7 s at 1,000 entries and more than 60 s at 5,000. Auto-pick measures each candidate by rebuilding the context, and that repeated work is the likely source of the growth. This is not confirmed by a profile.
+1. **Auto-pick was the first wall and is now close to linear.** The first version measured each candidate by rebuilding the whole context, so its cost grew with the square of the entry count: 0.4 s at 1,000 entries with the estimate counter, about 9 s at 5,000 and about 41 s at 10,000, and with the real o200k tokenizer 6.7 s at 1,000 entries and more than 60 s at 5,000. Issue #79 fixed this by counting each entry once and doing one exact count of the final text. It now takes 13.1 ms at 1,000 entries and 681.4 ms at 50,000 with the estimate counter, and 33.9 ms at 1,000, 182.7 ms at 5,000 and 1,859.5 ms at 50,000 with the real tokenizer. From 1,000 to 5,000 entries (5 times as many) the time grows 5.0 times with the estimate counter and 5.4 times with the real tokenizer. Because pieces are counted separately, Auto-pick can occasionally leave out an entry that would have fit exactly; the total it reports is always an exact count. In a test with the real tokenizer at 1,000 entries, the old and new code picked the same entries.
 
-2. **The list is the second wall, in the browser.** The list is not virtualized, so every row is in the DOM, at about 9 DOM nodes per entry. Initial load is 306 ms at 1,000 entries, 1,579 ms at 5,000, 2,643 ms at 10,000 and 13,181 ms at 50,000. Every search update re-renders the whole list. One search update (setting the box to 'cache') takes 323 ms at 1,000 entries, 1,413 ms at 5,000, 3,109 ms at 10,000 and 25,805 ms at 50,000. A person typing a word pays about that cost per keystroke. Across all four search steps (the 'cache', 'cache index', 'cache index token' and clear cells), the 1,000-entry cells range from 184 to 323 ms, the 5,000-entry cells from 968 to 1,620 ms, the 10,000-entry cells from 2,484 to 3,457 ms, and the 50,000-entry cells from 13,906 to 50,253 ms.
+2. **The list is now the first wall, in the browser.** The list is not virtualized, so every row is in the DOM, at about 9 DOM nodes per entry. Initial load is 306 ms at 1,000 entries, 1,579 ms at 5,000, 2,643 ms at 10,000 and 13,181 ms at 50,000. Every search update re-renders the whole list. One search update (setting the box to 'cache') takes 323 ms at 1,000 entries, 1,413 ms at 5,000, 3,109 ms at 10,000 and 25,805 ms at 50,000. A person typing a word pays about that cost per keystroke. Across all four search steps (the 'cache', 'cache index', 'cache index token' and clear cells), the 1,000-entry cells range from 184 to 323 ms, the 5,000-entry cells from 968 to 1,620 ms, the 10,000-entry cells from 2,484 to 3,457 ms, and the 50,000-entry cells from 13,906 to 50,253 ms.
 
    The search algorithm itself is not the likely cause. In Node, search, scoring, context build and export are roughly linear and cheap: search takes 335.7 ms even at 50,000 entries. The browser latency tracks the number of entries, so the likely cause is rendering the list on every search update. This is inferred from how the entry count matches the latency. No profile was taken, and the number of rows left after filtering was not recorded.
 
@@ -91,8 +91,8 @@ For reference, under about 100 ms usually feels instant to a person using a UI, 
 **Comfortable range, by feature:**
 
 - **List, search and export:** up to about 1,000 entries per project. At that size every browser median measured here is under about 0.35 s (one Clear run reached 610 ms), and Node search, scoring, context build and export take under 12 ms.
-- **Auto-pick:** only measured as fine at 100 entries (4.5 ms with the estimate counter, 55 ms with the real tokenizer). At 1,000 entries it takes 0.4 s with the estimate counter and 6.7 s with the real tokenizer, which the app uses by default. Nothing between 100 and 1,000 entries was measured.
-- **At 5,000 entries and above:** expect visible slowness in the list (about 1 to 1.6 s per search update) and in Auto-pick (about 9 s with the estimate counter, over 60 s with the real tokenizer).
+- **Auto-pick:** under 0.2 s up to 5,000 entries with the real tokenizer, which the app uses by default (33.9 ms at 1,000 and 182.7 ms at 5,000), and 1.9 s at 50,000.
+- **At 5,000 entries and above:** expect visible slowness in the list (about 1 to 1.6 s per search update). Auto-pick stays fast.
 
 ## What this does not cover
 
@@ -108,7 +108,7 @@ For reference, under about 100 ms usually feels instant to a person using a UI, 
 
 ## Known limits and next steps
 
-- **Auto-pick:** it rebuilds the context for every candidate entry, which is a known cost (tracked in [#79](https://github.com/thymeed/Squirrow/issues/79)). Auto-pick took 6.7 s at 1,000 entries with the real tokenizer, and 0.4 s or more at 1,000 entries and above with the estimate counter. Nothing between 100 and 1,000 entries was measured.
+- **Auto-pick:** fixed in [#79](https://github.com/thymeed/Squirrow/issues/79). It counts each entry once instead of rebuilding the context per candidate. The fallback estimate counter rounds up per piece, so it can leave out an entry that would fit exactly. Only the Auto-pick rows were re-measured after the fix; the other Node rows are from the first run (two full runs agreed within about 10%).
 - **List:** not virtualized. Rendering all rows is the likely browser cost described above. Virtualization has not been done yet.
 - **Import limit:** the 10 MB guard means a project of about 10,000 entries of this size cannot be restored from its own JSON export.
 - This page records the baseline. The numbers above are what a follow-up change should be compared against.
