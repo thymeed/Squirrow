@@ -80,7 +80,7 @@ Notes on these numbers:
 
 PR #88 memoised the entry rows, made the tick handler stable, and made the list follow a deferred copy of the search text. Only 5,000 entries were re-measured. 1,000, 10,000 and 50,000 entries were not, so the table above still stands for those sizes.
 
-Because the list now catches up after the search box, the stock harness (two animation frames after the input) would only time the search box. These numbers come from a small timing script that also waits until the list has the expected number of rows (4,494, 4,111, 3,820 and 5,000), then two more frames. Milliseconds, 3 runs each, same session as the "before" column.
+Because the list now catches up after the search box, the stock harness (two animation frames after the input) would only time the search box. The "Before #88" column was timed with the stock harness (`bench/browser-harness.js`), which then measured the list, because the list and the search box updated together. The two "After #88" columns come from a small timing script that also waits until the list has the expected number of rows (4,494, 4,111, 3,820 and 5,000), then two more frames. Milliseconds, 3 runs each, all in the same session.
 
 | 5,000 entries, one search update | Before #88: list updated | After #88: list updated | After #88: search box updated |
 | -------------------------------- | ------------------------ | ----------------------- | ----------------------------- |
@@ -136,4 +136,4 @@ For reference, under about 100 ms usually feels instant to a person using a UI, 
 - **Auto-pick:** fixed in [#79](https://github.com/thymeed/Squirrow/issues/79). It counts each entry once instead of rebuilding the context per candidate. The fallback estimate counter rounds up per piece, so it can leave out an entry that would fit exactly. Only the Auto-pick rows were re-measured after the fix; the other Node rows are from the first run (two full runs agreed within about 10%).
 - **List:** #88 memoised the rows and deferred the list behind the search box, so typing and ticking stay responsive. The list is still not virtualized, and updating it takes about 1.2 to 2.0 s at 5,000 entries. Virtualization has not been done and is parked in #84.
 - **Import limit:** raised from 10 MB to 100 MB in #85. A project of about 50,000 entries of this size can now be restored from its own JSON export. Import into IndexedDB at that size was not measured.
-- This page records the baseline. The numbers above are what a follow-up change should be compared against.
+- Compare a follow-up change against numbers re-measured in the same session.
