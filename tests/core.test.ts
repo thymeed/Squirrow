@@ -607,6 +607,15 @@ describe('portability', () => {
   it('rejects files over the size limit before parsing', () => {
     expect(() => parseSnapshot(' '.repeat(MAX_IMPORT_CHARS + 1))).toThrow('too large')
   })
+  it('names the limit in MB in the size error', () => {
+    expect(() => parseSnapshot(' '.repeat(MAX_IMPORT_CHARS + 1))).toThrow('limit 100 MB')
+  })
+  it('accepts an export of more than 10 MB, the old limit', () => {
+    const body = 'x'.repeat(600_000)
+    const text = exportJson(snapshot(Array.from({ length: 20 }, (_, i) => entry(`Big ${i}`, body))))
+    expect(text.length).toBeGreaterThan(10_000_000)
+    expect(parseSnapshot(text).entries).toHaveLength(20)
+  })
 })
 
 describe('resolvePick', () => {

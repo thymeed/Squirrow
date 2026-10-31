@@ -44,15 +44,15 @@ In a throwaway browser profile, first open the app itself at the origin that `vi
 
 Milliseconds, median. "over 60 s (stopped)" means the run passed the 60 s cap and was stopped. "not run" means it was not attempted.
 
-| Operation                                   |  100 | 1,000 | 5,000 |                            10,000 |                            50,000 |
-| ------------------------------------------- | ---: | ----: | ----: | --------------------------------: | --------------------------------: |
-| searchEntries (3-word query)                | 0.97 |  8.63 |  33.3 |                              67.1 |                             335.7 |
-| scoreTask (task sentence)                   | 1.58 |  11.6 |  54.8 |                             101.3 |                             511.2 |
-| buildContext (all entries)                  | 0.15 |  1.29 |  7.40 |                              15.0 |                              93.3 |
-| selectContext (Auto-pick), estimated tokens | 1.80 |  13.1 |  65.7 |                             123.1 |                             681.4 |
-| selectContext (Auto-pick), real tokenizer   | 4.28 |  33.9 | 182.7 |                             355.5 |                           1,859.5 |
-| exportMarkdown                              | 0.15 |  0.98 |  6.36 |                              13.3 |                              84.7 |
-| exportJson + parseSnapshot                  | 0.31 |  2.76 |  15.5 | rejected: over 10 MB import limit | rejected: over 10 MB import limit |
+| Operation                                   |  100 | 1,000 | 5,000 | 10,000 |  50,000 |
+| ------------------------------------------- | ---: | ----: | ----: | -----: | ------: |
+| searchEntries (3-word query)                | 0.97 |  8.63 |  33.3 |   67.1 |   335.7 |
+| scoreTask (task sentence)                   | 1.58 |  11.6 |  54.8 |  101.3 |   511.2 |
+| buildContext (all entries)                  | 0.15 |  1.29 |  7.40 |   15.0 |    93.3 |
+| selectContext (Auto-pick), estimated tokens | 1.80 |  13.1 |  65.7 |  123.1 |   681.4 |
+| selectContext (Auto-pick), real tokenizer   | 4.28 |  33.9 | 182.7 |  355.5 | 1,859.5 |
+| exportMarkdown                              | 0.15 |  0.98 |  6.36 |   13.3 |    84.7 |
+| exportJson + parseSnapshot                  | 0.31 |  2.76 |  15.5 |   29.8 |   140.6 |
 
 JSON export size: 100 entries = 0.10 MB, 1,000 = 1.0 MB, 5,000 = 5.0 MB, 10,000 = 10.2 MB, 50,000 = 51.0 MB (characters are about bytes here).
 
@@ -86,7 +86,7 @@ For reference, under about 100 ms usually feels instant to a person using a UI, 
 
    The search algorithm itself is not the likely cause. In Node, search, scoring, context build and export are roughly linear and cheap: search takes 335.7 ms even at 50,000 entries. The browser latency tracks the number of entries, so the likely cause is rendering the list on every search update. This is inferred from how the entry count matches the latency. No profile was taken, and the number of rows left after filtering was not recorded.
 
-3. **Import limit.** A project of about 10,000 entries exports to about 10.2 MB of JSON. The import guard `MAX_IMPORT_CHARS` in `src/core/portability.ts` is 10,000,000 characters, so that export cannot be imported back. A 5,000-entry export (5.0 MB) is under the limit.
+3. **Import limit (raised in #85).** The import guard `MAX_IMPORT_CHARS` in `src/core/portability.ts` used to be 10,000,000 characters, so an export of about 10,000 entries (10.2 MB) could not be imported back. It is now 100,000,000 characters, which covers an export of about 50,000 entries (51.0 MB). Parsing alone took 92.8 to 99.3 ms at 50,000 entries (3 timed runs after a warm-up of 83.3 ms), and export plus parse took 140.6 ms (median). Saving that many entries into the browser's database was not measured.
 
 **Comfortable range, by feature:**
 
@@ -110,5 +110,5 @@ For reference, under about 100 ms usually feels instant to a person using a UI, 
 
 - **Auto-pick:** fixed in [#79](https://github.com/thymeed/Squirrow/issues/79). It counts each entry once instead of rebuilding the context per candidate. The fallback estimate counter rounds up per piece, so it can leave out an entry that would fit exactly. Only the Auto-pick rows were re-measured after the fix; the other Node rows are from the first run (two full runs agreed within about 10%).
 - **List:** not virtualized. Rendering all rows is the likely browser cost described above. Virtualization has not been done yet.
-- **Import limit:** the 10 MB guard means a project of about 10,000 entries of this size cannot be restored from its own JSON export.
+- **Import limit:** raised from 10 MB to 100 MB in #85. A project of about 50,000 entries of this size can now be restored from its own JSON export. Import into IndexedDB at that size was not measured.
 - This page records the baseline. The numbers above are what a follow-up change should be compared against.
