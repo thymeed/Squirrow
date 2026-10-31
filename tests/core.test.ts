@@ -196,25 +196,32 @@ describe('selectContext', () => {
   const pref = entry('Tabs', '', 'preference', 1)
   const newest = entry('Colors', '', 'fact', 50)
   const all = [newest, pref, bodyHit, hit]
-  const pick = (entries: Entry[], query: string, budget: number, pinned: Entry[] = []) =>
-    selectContext(project, entries, query, budget, new Set(pinned.map((e) => e.id)))
+  const pick = (
+    entries: Entry[],
+    query: string,
+    budget: number,
+    pinned: Entry[] = [],
+    count?: TokenCounter,
+  ) => selectContext(project, entries, query, budget, new Set(pinned.map((e) => e.id)), count)
   const titles = (list: Entry[]) => list.map((e) => e.title)
+  const length: TokenCounter = (t) => t.length
 
   it('keeps the highest-ranked entries when the budget forces drops', () => {
-    const budget = estimateTokens(buildContext(project, [hit, bodyHit]))
-    const result = pick(all, 'postgres', budget)
+    const budget = length(buildContext(project, [hit, bodyHit]))
+    const result = pick(all, 'postgres', budget, [], length)
     expect(titles(result.included)).toEqual(['Postgres setup', 'Storage'])
     expect(titles(result.dropped)).toEqual(['Tabs', 'Colors'])
     expect(result.overBudget).toBe(false)
     expect(result.tokens).toBe(budget)
+    expect(result.tokens).toBeLessThanOrEqual(budget)
   })
   it('keeps the title match when only one entry fits', () => {
-    const budget = estimateTokens(buildContext(project, [hit]))
-    expect(titles(pick(all, 'postgres', budget).included)).toEqual(['Postgres setup'])
+    const budget = length(buildContext(project, [hit]))
+    expect(titles(pick(all, 'postgres', budget, [], length).included)).toEqual(['Postgres setup'])
   })
   it('ranks a preference above a newer fact when nothing matches', () => {
-    const budget = estimateTokens(buildContext(project, [pref]))
-    expect(titles(pick(all, '', budget).included)).toEqual(['Tabs'])
+    const budget = length(buildContext(project, [pref]))
+    expect(titles(pick(all, '', budget, [], length).included)).toEqual(['Tabs'])
   })
   it('never exceeds the budget unless overBudget is set, and measures the real text', () => {
     for (const budget of [40, 80, 200, 400, 2000]) {
@@ -243,15 +250,15 @@ describe('selectContext', () => {
     const preference = entry('Preference', 'a pref', 'preference', 1)
     const decision = entry('Decision', 'a choice', 'decision', 1)
     const tied = [snippet, fileNote, fact, preference, decision]
-    expect(titles(pick(tied, '', 100000).included)).toEqual([
+    expect(titles(pick(tied, '', 100000, [], length).included)).toEqual([
       'Decision',
       'Preference',
       'Fact',
       'File note',
       'Snippet',
     ])
-    const topTwo = estimateTokens(buildContext(project, [decision, preference]))
-    expect(titles(pick(tied, '', topTwo).included)).toEqual(['Decision', 'Preference'])
+    const topTwo = length(buildContext(project, [decision, preference]))
+    expect(titles(pick(tied, '', topTwo, [], length).included)).toEqual(['Decision', 'Preference'])
   })
   it('keeps a pinned entry over a better match when only one fits', () => {
     const budget = Math.max(
@@ -263,14 +270,14 @@ describe('selectContext', () => {
     expect(result.overBudget).toBe(false)
   })
   it('ranks by the task words when the task is a whole sentence', () => {
-    const budget = estimateTokens(buildContext(project, [hit]))
-    expect(titles(pick([pref, hit], 'set up postgres for the recipe app', budget).included)).toEqual([
-      'Postgres setup',
-    ])
+    const budget = length(buildContext(project, [hit]))
+    expect(
+      titles(pick([pref, hit], 'set up postgres for the recipe app', budget, [], length).included),
+    ).toEqual(['Postgres setup'])
   })
   it('ranks an entry that matches part of the task above one that matches none', () => {
-    const budget = estimateTokens(buildContext(project, [hit]))
-    expect(titles(pick([pref, hit], 'postgres redis cache setup', budget).included)).toEqual([
+    const budget = length(buildContext(project, [hit]))
+    expect(titles(pick([pref, hit], 'postgres redis cache setup', budget, [], length).included)).toEqual([
       'Postgres setup',
     ])
   })
@@ -298,6 +305,169 @@ describe('selectContext', () => {
         selectContext(project, all, 'postgres', budget, new Set(), estimateTokens),
       )
     }
+  })
+
+  describe('incremental fill', () => {
+    const words = [
+      'postgres',
+      'redis',
+      'tabs',
+      'deploy',
+      'cache',
+      'parser',
+      'csv',
+      'use',
+      'the',
+      'api',
+      'auth',
+    ]
+    const kinds: Entry['kind'][] = ['decision', 'preference', 'fact', 'file-note', 'snippet']
+    // Mulberry32: a small seeded generator, so every run sees the same entries.
+    const seeded = (seed: number) => {
+      let s = seed >>> 0
+      return () => {
+        s = (s + 0x6d2b79f5) >>> 0
+        let t = s
+        t = Math.imul(t ^ (t >>> 15), t | 1)
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+      }
+    }
+    const randomEntries = (rand: () => number, n: number): Entry[] => {
+      const phrase = (k: number) =>
+        Array.from({ length: k }, () => words[Math.floor(rand() * words.length)]).join(' ')
+      return Array.from({ length: n }, (_, i) => ({
+        id: `e${i}` as Entry['id'],
+        projectId: project.id,
+        kind: kinds[Math.floor(rand() * kinds.length)]!,
+        title: phrase(1 + Math.floor(rand() * 4)),
+        body: rand() < 0.3 ? '' : phrase(Math.floor(rand() * 25)),
+        updatedAt: 1 + Math.floor(rand() * 8),
+      }))
+    }
+    const randomPinned = (rand: () => number, entries: Entry[]) =>
+      new Set(entries.filter(() => rand() < 0.1).map((e) => e.id))
+    // Whitespace is not counted. Every line break and heading space then adds up exactly,
+    // so this counter is additive over the pieces the fill counts.
+    const nonSpace: TokenCounter = (text) => text.replace(/\s/g, '').length
+
+    // The old algorithm: rebuild and recount the whole context for every candidate.
+    const referenceSelect = (
+      entries: Entry[],
+      query: string,
+      budget: number,
+      pinned: ReadonlySet<Entry['id']>,
+      count: TokenCounter,
+    ) => {
+      const scores = scoreTask(entries, query)
+      const score = (e: Entry) => scores.get(e.id) ?? 0
+      const ranked = [...entries].sort(
+        (a, b) =>
+          Number(pinned.has(b.id)) - Number(pinned.has(a.id)) ||
+          Number(score(b) > 0) - Number(score(a) > 0) ||
+          score(b) - score(a) ||
+          KIND_RANK[a.kind] - KIND_RANK[b.kind] ||
+          b.updatedAt - a.updatedAt ||
+          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+      )
+      const tokensOf = (list: Entry[]) => count(buildContext(project, list))
+      const forced = ranked.filter((e) => pinned.has(e.id))
+      if (tokensOf(forced) > budget) {
+        return { included: forced, dropped: ranked.filter((e) => !pinned.has(e.id)), overBudget: true }
+      }
+      const included = [...forced]
+      const dropped: Entry[] = []
+      for (const e of ranked) {
+        if (pinned.has(e.id)) continue
+        if (tokensOf([...included, e]) <= budget) included.push(e)
+        else dropped.push(e)
+      }
+      return { included, dropped, overBudget: false }
+    }
+    const KIND_RANK: Record<Entry['kind'], number> = {
+      decision: 0,
+      preference: 1,
+      fact: 2,
+      'file-note': 3,
+      snippet: 4,
+    }
+    const ids = (list: Entry[]) => list.map((e) => e.id)
+
+    it('picks the same entries as the old per-candidate rebuild, with an additive counter', () => {
+      const rand = seeded(20261030)
+      for (let round = 0; round < 300; round++) {
+        const entries = randomEntries(rand, 1 + Math.floor(rand() * 60))
+        const pinned = randomPinned(rand, entries)
+        const query = rand() < 0.2 ? '' : words.slice(0, 1 + Math.floor(rand() * 3)).join(' ')
+        const full = nonSpace(buildContext(project, entries))
+        const budget = Math.floor(rand() * 1.2 * full)
+        const actual = selectContext(project, entries, query, budget, pinned, nonSpace)
+        const expected = referenceSelect(entries, query, budget, pinned, nonSpace)
+        expect(ids(actual.included)).toEqual(ids(expected.included))
+        expect(ids(actual.dropped)).toEqual(ids(expected.dropped))
+        expect(actual.overBudget).toBe(expected.overBudget)
+        expect(actual.tokens).toBe(nonSpace(buildContext(project, actual.included)))
+      }
+    })
+
+    it.each([
+      ['estimate, rounds up per piece', estimateTokens],
+      ['floor, rounds down per piece', (text: string) => Math.floor(text.length / 4)],
+    ])('with a non-additive counter (%s), tokens is the exact count and fits the budget', (_, count) => {
+      const rand = seeded(7)
+      for (let round = 0; round < 200; round++) {
+        const entries = randomEntries(rand, 1 + Math.floor(rand() * 60))
+        const pinned = randomPinned(rand, entries)
+        const budget = Math.floor(rand() * 2 * count(buildContext(project, entries)))
+        const query = words[round % words.length] ?? ''
+        const result = selectContext(project, entries, query, budget, pinned, count)
+        expect(result.tokens).toBe(count(buildContext(project, result.included)))
+        expect(result.overBudget || result.tokens <= budget).toBe(true)
+        const all = [...result.included, ...result.dropped].map((e) => e.id).sort()
+        expect(all).toEqual(entries.map((e) => e.id).sort())
+      }
+    })
+
+    it('finishes quickly on about 4,000 entries with the estimate counter', () => {
+      const rand = seeded(4000)
+      const entries = randomEntries(rand, 4000)
+      const pinned = randomPinned(rand, entries)
+      const budget = Math.floor(estimateTokens(buildContext(project, entries)) / 2)
+      const started = Date.now()
+      const result = selectContext(project, entries, 'postgres redis', budget, pinned)
+      // The per-candidate rebuild takes over 2 s here, the incremental fill well under 100 ms.
+      expect(Date.now() - started).toBeLessThan(300)
+      expect(result.tokens).toBe(estimateTokens(buildContext(project, result.included)))
+    })
+
+    // Machine-independent check: the fill must not rebuild the whole context per candidate. Full
+    // contexts start with '# Context:'. The pinned set and the final check are one count each.
+    describe('full-context counts', () => {
+      const countFullContexts = (count: TokenCounter) => {
+        const rand = seeded(4001)
+        const entries = randomEntries(rand, 2000)
+        const pinned = randomPinned(rand, entries)
+        const budget = Math.floor(count(buildContext(project, entries)) / 2)
+        let fullCounts = 0
+        const counting: TokenCounter = (text) => {
+          if (text.startsWith('# Context:')) fullCounts++
+          return count(text)
+        }
+        const result = selectContext(project, entries, 'postgres redis', budget, pinned, counting)
+        expect(result.tokens).toBe(count(buildContext(project, result.included)))
+        return fullCounts
+      }
+
+      it('stays at a small constant with the estimate counter', () => {
+        expect(countFullContexts(estimateTokens)).toBeLessThanOrEqual(3)
+      })
+
+      it('stays at a small constant with the o200k tokenizer', async () => {
+        const counter = await loadTokenCounter()
+        expect(counter).not.toBeNull()
+        expect(countFullContexts(counter!)).toBeLessThanOrEqual(3)
+      })
+    })
   })
 })
 
