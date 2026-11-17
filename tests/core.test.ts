@@ -595,6 +595,12 @@ describe('portability', () => {
   it('rejects files over the size limit before parsing', () => {
     expect(() => parseSnapshot(' '.repeat(MAX_IMPORT_CHARS + 1))).toThrow('too large')
   })
+  it('accepts a file of exactly the size limit', () => {
+    const json = exportJson(snapshot([entry('Edge')]))
+    const text = json + ' '.repeat(MAX_IMPORT_CHARS - json.length)
+    expect(text.length).toBe(MAX_IMPORT_CHARS)
+    expect(parseSnapshot(text).entries).toHaveLength(1)
+  })
   it('names the limit in MB in the size error', () => {
     expect(() => parseSnapshot(' '.repeat(MAX_IMPORT_CHARS + 1))).toThrow('limit 100 MB')
   })
